@@ -6,6 +6,13 @@ import type {
   SavedItem,
 } from "../shared/commerce.js";
 import { ApiError } from "./errors.js";
+import { sourceOrigin } from "../shared/context.js";
+
+function inspirationKey(item: SaveInput): string | undefined {
+  const origin = sourceOrigin(item.sourceOrigin);
+  const summary = (item.summary ?? item.label).trim().toLowerCase().replace(/\s+/g, " ");
+  return !item.offer && origin && summary ? JSON.stringify([origin, summary]) : undefined;
+}
 export type SaveInput = Omit<SavedItem, "createdAt" | "tags" | "generation"> & {
   tags?: string[];
   collectionId?: string;
@@ -51,10 +58,20 @@ export class CommerceStore {
   saveItem(input: SaveInput): SavedItem {
     if (input.collectionId)
       this.read<Collection>("inspiration_collections", input.collectionId);
-    const previous = this.getSavedItems().find((item) => item.id === input.id);
+    const existing = this.getSavedItems();
+    const key = inspirationKey(input);
+    const duplicate = key && existing.find((item) => inspirationKey(item) === key);
+    // A new popup UUID is a retry of the same saved idea, not new evidence.
+    // Return the canonical item so collections and intent events share one identity.
+    if (duplicate) {
+      if (input.collectionId) this.addToCollection(input.collectionId, duplicate.id);
+      return duplicate;
+    }
+    const previous = existing.find((item) => item.id === input.id);
     const { collectionId, ...data } = input;
     const item: SavedItem = {
       ...data,
+      sourceOrigin: sourceOrigin(data.sourceOrigin),
       tags: input.tags ?? [],
       generation: previous?.generation ?? randomUUID(),
       createdAt: previous?.createdAt ?? new Date(this.now()).toISOString(),
