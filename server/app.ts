@@ -14,6 +14,9 @@ import { SampleProvider } from './sample-provider.js';
 import { WebDemoProvider } from './web-demo-provider.js';
 import { decideProducts } from './product-decision.js';
 import { installVoiceRoutes } from './voice.js';
+import { searchRecoveryQuestion } from '../shared/search-recovery.js';
+
+type SearchOutcome = ProviderResult & Pick<SearchResponse, 'discoverySource' | 'webSearch' | 'decision'> & { interpretation?: Interpretation };
 
 const preferenceSchema = z.object({ budget: z.number().finite().nonnegative().max(1_000_000_000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional() }).strict();
 const imageDataSchema = z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/);
@@ -31,7 +34,7 @@ const discoverSchema = z.object({ selection: selectionSchema, preferences: prefe
 const refineSchema = z.object({ sessionId: z.string().uuid(), instruction: z.string().trim().min(1).max(1000), preferences: preferenceSchema.optional() }).strict();
 const clarifySchema = z.object({ sessionId: z.string().uuid(), answer: z.string().trim().min(1).max(1000), selection: selectionSchema }).strict();
 const orderSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), confirmationId: z.string().min(8).max(100), confirmed: z.literal(true), cartItemId: z.string().uuid().optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
-const cartSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
+const cartSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(99).optional(), operationId: z.string().min(8).max(100).optional() }).strict();
 const clearSchema = z.object({}).strict();
 
 export interface AppOptions { config?: ServerConfig; sampleProvider?: ProductProvider; liveProvider?: ProductProvider; webDemoProvider?: ProductProvider; decisionProvider?: typeof decideProducts }
@@ -71,36 +74,57 @@ export function createApp(options: AppOptions = {}) {
     if (mode === 'live' && liveMissing.length) throw new ApiError(503, 'LIVE_NOT_CONFIGURED', `Live discovery needs ${liveMissing.join(' and ')} in .env. You can use the prepared catalog meanwhile.`);
   }
 
-  async function searchWithFallback(mode: DiscoveryMode, item: Interpretation, preferences: Preferences, signal: AbortSignal, instruction = '', selection?: Selection): Promise<ProviderResult & Pick<SearchResponse, 'discoverySource' | 'webSearch' | 'decision'>> {
+  async function searchWithFallback(mode: DiscoveryMode, item: Interpretation, preferences: Preferences, signal: AbortSignal, instruction = '', selection?: Selection): Promise<SearchOutcome> {
+    const finish = (result: SearchOutcome): SearchOutcome => {
+      if (result.offers.length || item.needsClarification || result.webSearch?.status === 'failed' || result.webSearch?.status === 'unavailable') return result;
+      const clarification = searchRecoveryQuestion(item, preferences);
+      return { ...result, interpretation: { ...item, needsClarification: true, clarification },
+        ...(result.decision?.status === 'no_match' && result.webSearch ? { webSearch: { ...result.webSearch, status: 'empty', message: clarification } } : {}),
+      };
+    };
     const rank = async (result: ProviderResult): Promise<ProviderResult & Pick<SearchResponse, 'decision'>> => {
       if (item.needsClarification || !result.offers.length) return result;
       const ranked = await decide(config, { item, preferences, instruction, selection, offers: result.offers }, signal);
-      return { ...ranked, warnings: [...result.warnings, ...ranked.warnings] };
+      return { ...ranked, offers: ranked.offers.slice(0, 3), warnings: [...result.warnings, ...ranked.warnings] };
     };
     const primary = await rank(await providers[mode].search(item, preferences, signal, instruction));
-    if (mode === 'live') return { ...primary, discoverySource: 'exa' };
+    if (mode === 'live') {
+      if (!primary.offers.length && !item.needsClarification && primary.decision?.status === 'no_match' && item.productType.trim()) {
+        const retry = await rank(await providers.live.search({ ...item, queries: [item.productType.trim()] }, preferences, signal, instruction));
+        return finish({ ...retry, discoverySource: 'exa' });
+      }
+      return finish({ ...primary, discoverySource: 'exa' });
+    }
     if (primary.offers.length || item.needsClarification) return { ...primary, discoverySource: 'catalog' };
 
     if (liveMissing.length) {
       const message = `No catalog match. Automatic web search needs ${liveMissing.join(' and ')} in .env. Add the missing key${liveMissing.length > 1 ? 's' : ''}, restart the server, and retry.`;
-      return { ...primary, warnings: [...primary.warnings, message], discoverySource: 'catalog', webSearch: { status: 'unavailable', message } };
+      return finish({ ...primary, warnings: [...primary.warnings, message], discoverySource: 'catalog', webSearch: { status: 'unavailable', message } });
     }
 
     try {
       // Retrieval reuses the identified object; Decisions compares these candidates
       // against the original focused selection within the same request deadline.
-      const web = await webDemoProvider.search(item, preferences, signal, instruction);
-      const offers = database.cacheWebOffers(item, web.offers).filter(offer => preferences.budget === undefined || (offer.currency === preferences.currency && offer.price !== null && offer.price <= preferences.budget));
-      const message = offers.length
+      const searchWeb = async (target: Interpretation) => {
+        const web = await webDemoProvider.search(target, preferences, signal, instruction);
+        const offers = database.cacheWebOffers(item, web.offers).filter(offer => preferences.budget === undefined || (offer.currency === preferences.currency && offer.price !== null && offer.price <= preferences.budget));
+        return rank({ offers, warnings: [...primary.warnings, ...web.warnings] });
+      };
+      let ranked = await searchWeb(item);
+      if (!ranked.offers.length && ranked.decision?.status === 'no_match' && item.productType.trim()) {
+        // Broaden retrieval once, but Decisions still sees the original pointed
+        // target, buyer constraints, and crop. Never force an unrelated winner.
+        ranked = await searchWeb({ ...item, queries: [item.productType.trim()] });
+      }
+      const message = ranked.offers.length
         ? 'Found product references with Exa and added them to your demo catalog.'
         : 'Exa searched across stores but found no matching product references. Try a broader description or a brand/model name.';
-      const ranked = await rank({ offers, warnings: [...primary.warnings, message, ...web.warnings] });
-      return { ...ranked, discoverySource: 'exa', webSearch: { status: offers.length ? 'used' : 'empty', message: ranked.decision?.status === 'no_match' ? 'Products were found, but none was a suitable match for your selection. Try a clearer description or a different crop.' : message } };
+      return finish({ ...ranked, warnings: [...ranked.warnings, message], discoverySource: 'exa', webSearch: { status: ranked.offers.length ? 'used' : 'empty', message } });
     } catch (error) {
       if (signal.aborted) throw new ApiError(504, 'TIMEOUT', 'This search took too long. Try again or narrow your description.');
       const detail = error instanceof ApiError ? error.message : 'The web search service could not be reached. Please retry.';
       const message = `No catalog match. Automatic web search could not finish. ${detail}`;
-      return { ...primary, warnings: [...primary.warnings, message], discoverySource: 'exa', webSearch: { status: 'failed', message } };
+      return finish({ ...primary, warnings: [...primary.warnings, message], discoverySource: 'exa', webSearch: { status: 'failed', message } });
     }
   }
 
@@ -134,7 +158,7 @@ export function createApp(options: AppOptions = {}) {
     try { clearSchema.parse(req.body); res.json({ orders: database.clearHistory() }); } catch (error) { next(error); }
   });
   app.post('/cart', (req, res, next) => {
-    try { const body = cartSchema.parse(req.body); res.json({ items: database.addCart(body.sessionId, body.offerId, body.variant, body.quantity) }); } catch (error) { next(error); }
+    try { const body = cartSchema.parse(req.body); res.json({ items: database.addCart(body.sessionId, body.offerId, body.variant, body.quantity, body.operationId) }); } catch (error) { next(error); }
   });
   app.post('/cart/:id/remove', (req, res, next) => {
     try { res.json({ items: database.removeCart(z.string().uuid().parse(req.params.id)) }); } catch (error) { next(error); }
@@ -163,12 +187,14 @@ export function createApp(options: AppOptions = {}) {
     try {
       const body = refineSchema.parse(req.body);
       const session = database.session(body.sessionId);
+      if (session.interpretation.needsClarification) throw new ApiError(409, 'QUESTION_PENDING', 'Answer the current question before refining this search. Your original selection is still available.');
       checkLive(session.result.mode);
       const preferences = budgetFromInstruction(body.instruction, session.preferences, body.preferences);
-      const search = await bounded(req, res, signal => searchWithFallback(session.result.mode, session.interpretation, preferences, signal, body.instruction, session.selection));
+      const instructions = [...(session.instructions ?? []).slice(-4), body.instruction];
+      const search = await bounded(req, res, signal => searchWithFallback(session.result.mode, session.interpretation, preferences, signal, instructions.join('\n'), session.selection));
       const result: SearchResponse = { sessionId: randomUUID(), mode: session.result.mode, interpretation: session.interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' };
       // Keep the original session immutable so an already-reviewed order cannot change underneath its confirmation.
-      database.saveSession({ selection: session.selection, interpretation: session.interpretation, preferences, result });
+      database.saveSession({ selection: session.selection, interpretation: result.interpretation, preferences, instructions, result });
       res.json(result);
     } catch (error) { next(error); }
   });
@@ -177,7 +203,7 @@ export function createApp(options: AppOptions = {}) {
     try {
       const body = clarifySchema.parse(req.body);
       const session = database.session(body.sessionId);
-      if (!session.interpretation.needsClarification) throw new ApiError(409, 'NO_QUESTION_PENDING', 'This item is already identified. Refine the search or select another object.');
+      if (!session.interpretation.needsClarification && session.result.offers.length) throw new ApiError(409, 'NO_QUESTION_PENDING', 'This item is already identified. Refine the search or select another object.');
       const mode = session.result.mode;
       checkLive(mode);
       // Images live with the browser selection, never in SQLite. Restore the saved
@@ -186,17 +212,18 @@ export function createApp(options: AppOptions = {}) {
         ...body.selection,
         ...session.selection,
         clarifications: [...(session.selection.clarifications ?? []).slice(-4), {
-          question: session.interpretation.clarification || 'Which object do you want to find?',
+          question: session.interpretation.clarification || searchRecoveryQuestion(session.interpretation, session.preferences),
           answer: body.answer,
         }],
       };
       const preferences = budgetFromInstruction(body.answer, session.preferences);
+      const instructions = [...(session.instructions ?? []).slice(-4), body.answer];
       const result = await bounded(req, res, async signal => {
         const interpretation = await providers[mode].identify(selection, signal);
-        const search = await searchWithFallback(mode, interpretation, preferences, signal, '', selection);
+        const search = await searchWithFallback(mode, interpretation, preferences, signal, instructions.join('\n'), selection);
         return { sessionId: randomUUID(), mode, interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' } satisfies SearchResponse;
       });
-      database.saveSession({ selection, interpretation: result.interpretation, preferences, result });
+      database.saveSession({ selection, interpretation: result.interpretation, preferences, instructions, result });
       res.json(result);
     } catch (error) { next(error); }
   });

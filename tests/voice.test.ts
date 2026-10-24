@@ -6,7 +6,7 @@ import { NeedleDatabase } from '../server/database.js';
 import type { ServerConfig } from '../server/config.js';
 import { installVoiceRoutes } from '../server/voice.js';
 import { ApiError } from '../server/errors.js';
-import type { Interpretation, SearchResponse } from '../shared/types.js';
+import type { Interpretation, Offer, SearchResponse } from '../shared/types.js';
 
 const sessionId = '11111111-1111-4111-8111-111111111111';
 const question = 'Do you mean the black instrument on the wall or the shirt?';
@@ -25,9 +25,9 @@ function application(options: Partial<ServerConfig> = {}) {
   };
   app.use(errors); return app;
 }
-function save(needsClarification = true, id = sessionId) {
-  const interpretation = { ...item, needsClarification };
-  const result: SearchResponse = { sessionId: id, interpretation, offers: [], warnings: [], mode: 'sample' };
+function save(needsClarification = true, id = sessionId, offers: Offer[] = []) {
+  const interpretation = { ...item, needsClarification, clarification: needsClarification ? question : null };
+  const result: SearchResponse = { sessionId: id, interpretation, offers, warnings: [], mode: 'sample' };
   database.saveSession({ selection: { text: 'Object at the cursor' }, interpretation, preferences: {}, result });
 }
 
@@ -74,7 +74,8 @@ describe('OpenAI voice question and answer endpoints', () => {
 
   it('requires a current question for both endpoints', async () => {
     vi.stubGlobal('fetch', vi.fn());
-    const resolvedId = '22222222-2222-4222-8222-222222222222'; save(false, resolvedId);
+    const resolvedId = '22222222-2222-4222-8222-222222222222';
+    save(false, resolvedId, [{ id: 'found', title: 'Headphones', description: 'Headphones', imageUrl: null, sourceUrl: null, match: 'similar', matchEvidence: 'Same product type', price: 50, currency: 'USD', observedAt: '2026-10-25T00:00:00Z', dataOrigin: 'sample', variants: [], shipping: null, availability: null, returns: null, reason: '', differences: [] }]);
     const expiredId = '33333333-3333-4333-8333-333333333333';
     for (const path of ['/voice/question', '/voice/transcribe']) {
       const extra = path.endsWith('transcribe') ? { audioDataUrl: recording } : {};
@@ -82,6 +83,19 @@ describe('OpenAI voice question and answer endpoints', () => {
       await request(application()).post(path).send({ sessionId: expiredId, ...extra }).expect(410);
     }
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('allows speech and transcription to recover a legacy empty-result session', async () => {
+    const emptyId = '44444444-4444-4444-8444-444444444444'; save(false, emptyId);
+    const mock = vi.fn().mockResolvedValueOnce(new Response(Buffer.from('ID3 recovery question'), { headers: { 'Content-Type': 'audio/mpeg' } }))
+      .mockResolvedValueOnce(Response.json({ text: 'A similar one is fine.' }));
+    vi.stubGlobal('fetch', mock);
+    await request(application()).post('/voice/question').send({ sessionId: emptyId }).expect(200);
+    expect(JSON.parse(mock.mock.calls[0][1].body).input).toContain('brand/model');
+    const response = await request(application()).post('/voice/transcribe').send({ sessionId: emptyId, audioDataUrl: recording }).expect(200);
+    expect(response.body.text).toBe('A similar one is fine.');
+    expect(database.session(emptyId).result.offers).toEqual([]);
+    expect(database.cart()).toEqual([]);
   });
 
   it.each([

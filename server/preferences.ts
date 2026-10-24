@@ -18,7 +18,7 @@ export function budgetFromInstruction(instruction: string, existing: Preferences
   }
   let amount: number | undefined = explicit.budget;
   if (amount === undefined && /\b(?:UNDER|BELOW|BUDGET|LESS THAN|MAX(?:IMUM)?|UP TO)\b|이하|미만/.test(text)) {
-    const found = text.match(/(?:UNDER|BELOW|BUDGET|LESS THAN|MAX(?:IMUM)?|UP TO)\s*(?:OF\s*)?(?:(?:[A-Z]{3}|US\$|S\$|NT\$|[$₩€£])\s*)?(\d[\d,]*(?:\.\d+)?)\s*([KM])?(?![A-Z0-9])/)
+    const found = text.match(/(?:UNDER|BELOW|BUDGET|LESS THAN|MAX(?:IMUM)?|UP TO)\s*(?:(?:OF|TO)\s*)?(?:(?:[A-Z]{3}|US\$|S\$|NT\$|[$₩€£])\s*)?(\d[\d,]*(?:\.\d+)?)\s*([KM])?(?![A-Z0-9])/)
       ?? text.match(/(\d[\d,]*(?:\.\d+)?)\s*([KM])?\s*원?\s*(?:이하|미만)/);
     if (found) amount = Number(found[1].replace(/,/g, '')) * (found[2] === 'K' ? 1000 : found[2] === 'M' ? 1_000_000 : 1);
     else if (/\d/.test(text)) throw new ApiError(422, 'BUDGET_FORMAT', 'Use a clear budget such as “under KRW 50,000” or “under KRW 50k”.');

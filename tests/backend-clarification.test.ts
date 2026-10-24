@@ -64,6 +64,18 @@ describe('cursor-focused clarification', () => {
     } finally { app.locals.database.close(); }
   });
 
+  it('does not silently ignore a refinement when an object question is pending', async () => {
+    const search = vi.fn(async () => ({ offers: [], warnings: [] }));
+    const app = createApp({ config, sampleProvider: { identify: async () => ambiguous, search } });
+    try {
+      const initial = await request(app).post('/discover').send({ selection }).expect(200);
+      const response = await request(app).post('/refine').send({ sessionId: initial.body.sessionId, instruction: 'The instrument' }).expect(409);
+      expect(response.body.error.code).toBe('QUESTION_PENDING');
+      expect(response.body.error.message).toMatch(/answer.*question/i);
+      expect(search).toHaveBeenCalledTimes(1);
+    } finally { app.locals.database.close(); }
+  });
+
   it.each([{ x: -0.01, y: 0.5 }, { x: 0.5, y: 1.01 }, { x: '0.5', y: 0.5 }, { x: 0.5 }])('rejects invalid cursor coordinates: %j', async focus => {
     const app = createApp({ config });
     try { await request(app).post('/discover').send({ selection: { ...selection, focus } }).expect(400); }

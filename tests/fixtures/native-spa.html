@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Needle native Chrome route test</title>
+<style>body{font:18px system-ui;margin:40px;background:#f6f7fb;color:#17212d}main{max-width:680px;margin:auto}img{display:block;width:520px;max-width:100%;border-radius:20px;margin:24px 0}button{font:inherit;padding:12px 20px;border-radius:12px;border:1px solid #ccc;background:white}p{line-height:1.6}</style>
+<main><h1>Native extension route test</h1><p>This page uses the installed extension directly. Change the route without reloading, then right-click the headphones.</p><button id="route">Change route without reload</button><p id="location">Initial route</p><img src="/assets/photos/headphones.png" alt="Black over-ear headphones"></main>
+<script>document.getElementById('route').onclick=()=>{history.pushState({},'',location.pathname+'?product=headphones');document.getElementById('location').textContent='Route changed. Right-click the headphones.';};</script>
+</html>

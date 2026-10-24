@@ -98,6 +98,17 @@ describe('automatic Exa fallback for catalog misses', () => {
     expect(web.search).toHaveBeenCalledWith(item, {}, expect.any(AbortSignal), '');
   });
 
+  it('asks about the current budget after no matching offers and accepts a higher budget', async () => {
+    const { app, web } = setup();
+    vi.mocked(web.search).mockImplementation(async (_item, preferences) => ({ offers: preferences.budget! >= 200 ? [{ ...offer, price: 199, currency: 'USD' }] : [], warnings: [] }));
+    const initial = await request(app).post('/discover').send({ ...body, preferences: { budget: 50, currency: 'USD' } }).expect(200);
+    expect(initial.body.interpretation.needsClarification).toBe(true);
+    expect(initial.body.interpretation.clarification).toContain('USD 50');
+    expect(initial.body.interpretation.clarification).toMatch(/budget/i);
+    const answered = await request(app).post('/clarify').send({ sessionId: initial.body.sessionId, selection: body.selection, answer: 'Raise my budget to USD 200' }).expect(200);
+    expect(answered.body.offers[0]).toMatchObject({ price: 199, currency: 'USD' });
+  });
+
   it('turns grounded web matches into persistent demo items', async () => {
     const { app, live, web } = setup();
     vi.mocked(web.search).mockResolvedValue({ offers: [], warnings: [] });
@@ -119,7 +130,8 @@ describe('automatic Exa fallback for catalog misses', () => {
     expect(web.identify).not.toHaveBeenCalled();
     expect(sample.search).toHaveBeenCalledTimes(2);
     expect(web.search).toHaveBeenLastCalledWith(item, { budget: 500000, currency: 'KRW' }, expect.any(AbortSignal), instruction);
-    expect(response.body).toMatchObject({ mode: 'sample', discoverySource: 'exa', interpretation: item });
+    expect(response.body).toMatchObject({ mode: 'sample', discoverySource: 'exa', interpretation: { ...item, needsClarification: true, clarification: expect.stringContaining('mandolin') } });
+    expect(app.locals.database.session(response.body.sessionId).interpretation).toEqual(response.body.interpretation);
     expect(response.body.sessionId).not.toBe(initial.body.sessionId);
     expect(app.locals.database.session(response.body.sessionId).selection).toEqual({ pageUrl: body.selection.pageUrl });
   });

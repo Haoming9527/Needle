@@ -6,6 +6,10 @@ A local Chrome extension with a compact right-click shopping popup, a Vercel AI 
 
 The extension uses six generated category photos in `public/assets/photos/`. These are illustrative images, not verified photographs of the named catalog models. Searching shows a small red glow at the selected point, elapsed time, and an available cancel control.
 
+Search returns a useful product or a question you can answer in the popup by text or microphone. Decorative stickers and custom lettering do not require an exact match. If product selection rejects all web candidates, Needle tries one broader search under the original deadline and constraints, then asks for guidance while keeping the original crop.
+
+Dropped discovery replies recover once using the same selection. The visible panel reconnects when the local service comes back. Cart and purchase retries use persistent identifiers to avoid duplicate additions or receipts; if a cart reply is lost, retry within the same popup or confirmation dialog. Your selected variant stays fixed for that retry.
+
 ## Run locally
 
 Requires Node.js 22.13+ (tested on 26.12.1).
@@ -49,7 +53,7 @@ The dedicated OpenAI Decisions endpoint chooses the best fit from the retrieved 
 
 Alternatively, set `AI_GATEWAY_API_KEY` for identification and catalog search; Decisions and voice require a direct `OPENAI_API_KEY`. The OpenAI key takes priority when both are present. No Vercel deployment is required. `EXA_API_KEY` enables automatic web fallback when the catalog has no close match, including searches started from the right-click popup. Without it, prepared catalog searches still work.
 
-With a key, the agent interprets the selected image, calls a SQLite catalog-search tool, and recommends grounded offers. Without a key, text descriptions still search the prepared catalog; image recognition is unavailable. Keys stay on the backend and are never bundled into the extension.
+With a key, the agent interprets the selected image, calls a SQLite catalog-search tool, and compares up to eight grounded candidates before showing three recommendations. The candidate pool keeps prepared records alongside cached web products; supported manufacturer evidence takes priority over decorative lettering or a title's theme. Brand recognition does not establish an exact model. Without a key, text descriptions still search the prepared catalog; image recognition is unavailable. Keys stay on the backend and are never bundled into the extension.
 
 ### When there is no catalog match
 
@@ -65,7 +69,7 @@ npm run build
 
 1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
 2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.8.0**, then refresh the webpage to remove the previous content script.
+3. Check that Chrome shows **version 0.8.2**. Needle reattaches to open webpages automatically after reloading the extension.
 4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
 5. Needle captures a small region around the cursor, marks the exact point for vision, and automatically searches. A red glow stays at the clicked point while searching and disappears when the search ends. It hides during capture and respects reduced motion. Its two shopping actions become available when a result and any required variant are ready. If the agent asks which object you mean, type your answer directly in the popup and press Enter or Search.
 6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
@@ -74,7 +78,7 @@ Shift + right-click preserves the normal browser menu, as does right-clicking an
 
 Use the panel's **On/Off switch** to enable or disable right-click shopping. Off restores the normal browser/site context menu and closes an active shopping popup. The preference is saved across tabs and browser restarts. Open Needle from Chrome's extension toolbar to turn it back on. Settings now contains just the budget and currency preferences.
 
-If Chrome still shows only its normal menu, verify version 0.8.0, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+If Chrome still shows only its normal menu, verify version 0.8.2, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
 
 When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
 

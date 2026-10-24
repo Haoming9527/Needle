@@ -11,6 +11,7 @@ import { VoiceReply } from './VoiceReply';
 import { ShoppingSwitch } from './ShoppingSwitch';
 import { Cart, PurchaseHistory } from './SavedItems';
 import { NeedleMark, ProductImage } from './ui';
+import { searchRecoveryQuestion } from '../../shared/search-recovery';
 import './styles.css';
 
 const examples = [
@@ -53,6 +54,7 @@ export default function App() {
   const [mutating, setMutating] = useState(false);
   const [toast, setToast] = useState('');
   const active = useRef<AbortController | null>(null);
+  const healthRequest = useRef<AbortController | null>(null);
   const requestId = useRef(0);
   const previousRequest = useRef<Pending | null>(null);
   const lastCaptureId = useRef('');
@@ -77,10 +79,14 @@ export default function App() {
   }, []);
 
   const refreshHealth = useCallback(async () => {
+    if (healthRequest.current) return;
+    const controller = new AbortController(); healthRequest.current = controller;
     try {
-      const status = await apiRequest<HealthResponse>('/health', undefined, AbortSignal.timeout(5000));
+      const status = await apiRequest<HealthResponse>('/health', undefined, AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]));
+      if (controller.signal.aborted) return;
       setHealth(status); setServiceOffline(false);
-    } catch { setServiceOffline(true); setHealth(null); }
+    } catch { if (!controller.signal.aborted) { setServiceOffline(true); setHealth(null); } }
+    finally { if (healthRequest.current === controller) healthRequest.current = null; }
   }, []);
   const refreshCollections = useCallback(async () => {
     if (cartMutation.current) return;
@@ -93,7 +99,12 @@ export default function App() {
     } catch (error) { if (version === collectionVersion.current) setCollectionError(error instanceof Error ? error.message : 'Your saved items could not be loaded.'); }
     finally { if (version === collectionVersion.current) setCollectionLoading(false); }
   }, []);
-  useEffect(() => { void refreshHealth(); void refreshCollections(); return () => active.current?.abort(); }, [refreshHealth, refreshCollections]);
+  useEffect(() => { void refreshHealth(); void refreshCollections(); return () => { active.current?.abort(); healthRequest.current?.abort(); healthRequest.current = null; }; }, [refreshHealth, refreshCollections]);
+  useEffect(() => {
+    if (!serviceOffline) return;
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refreshHealth(); }, 4000);
+    return () => window.clearInterval(timer);
+  }, [serviceOffline, refreshHealth]);
   useEffect(() => {
     let alive = true;
     let receivedUpdate = false;
@@ -109,11 +120,11 @@ export default function App() {
     return () => { alive = false; unsubscribe(); };
   }, []);
   useEffect(() => {
-    const refresh = () => { if (document.visibilityState === 'visible') void refreshCollections(); };
+    const refresh = () => { if (document.visibilityState === 'visible') { void refreshHealth(); void refreshCollections(); } };
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', refresh);
     return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
-  }, [refreshCollections]);
+  }, [refreshCollections, refreshHealth]);
   useEffect(() => {
     if (!pending) return;
     setElapsed(0); const timer = setInterval(() => setElapsed(Math.max(0, Math.floor((Date.now() - searchStarted.current) / 1000))), 1000);
@@ -208,6 +219,7 @@ export default function App() {
   function openView(next: View) { setView(next); if (next !== 'find') void refreshCollections(); }
   function reviewCheckout(value: CheckoutSelection) { if (!cartMutation.current) setCheckout(value); }
   const selectedOffer = response?.offers.find(item => item.id === selectedOfferId) ?? response?.offers[0];
+  const needsQuestion = !!response && (response.interpretation.needsClarification || !response.offers.length);
   const hasFind = !!(response || preview || pending || selection.text);
   const cartCount = cart.reduce((count, item) => count + item.quantity, 0);
 
@@ -226,11 +238,12 @@ export default function App() {
         {pending && <SearchProgress image={preview} elapsed={elapsed} refining={pending !== '/discover'} onStop={() => { stopRequest(); setProblem({ message: 'Search stopped.', retryable: true }); }} />}
         {problem && <div className="notice" role="alert"><Info size={16} /><div><p>{problem.message}</p>{problem.retryable && previousRequest.current && <button className="text-button" onClick={() => { if (previousRequest.current) void run(previousRequest.current); }}><RefreshCw size={13} />Try again</button>}</div></div>}
         {response && <section className={`results ${pending ? 'results-pending' : ''}`} aria-label="Product recommendations" aria-busy={!!pending}>
-          {response.interpretation.needsClarification && <form className="clarification-form" onSubmit={event => {
+          {needsQuestion && <form className="clarification-form" onSubmit={event => {
             event.preventDefault();
             if (clarificationAnswer.trim() && !pending && !active.current) void run({ path: '/clarify', body: { sessionId: response.sessionId, answer: clarificationAnswer.trim(), selection } });
           }}>
-            <p id="clarification-question">{response.interpretation.clarification ?? 'Which item do you mean? Describe its position or appearance.'}</p>
+            {['failed', 'unavailable'].includes(response.webSearch?.status ?? '') && <p>{response.webSearch?.message}</p>}
+            <p id="clarification-question">{response.interpretation.clarification ?? searchRecoveryQuestion(response.interpretation)}</p>
             <label htmlFor="clarification-answer">Your answer</label>
             <VoiceReply key={response.sessionId} sessionId={response.sessionId} disabled={!!pending} answer={clarificationAnswer} onTranscript={setClarificationAnswer}>
               <textarea id="clarification-answer" aria-describedby="clarification-question" rows={2} maxLength={1000} value={clarificationAnswer} onChange={event => setClarificationAnswer(event.target.value)} disabled={!!pending} placeholder="The black instrument on the left…" onKeyDown={event => {
@@ -239,9 +252,9 @@ export default function App() {
             </VoiceReply>
             <div className="clarification-actions"><span>We'll keep your selected image.</span><button className="primary-button" type="submit" disabled={!clarificationAnswer.trim() || !!pending}>{pending === '/clarify' ? 'Finding…' : 'Send answer'}<ArrowUp size={15} /></button></div>
           </form>}
-          {selectedOffer ? <ProductResult response={response} offer={selectedOffer} fallbackSrc={preview} pending={!!pending || mutating} onSelect={id => { setSelectedOfferId(id); setCheckout(null); }} onCheckout={reviewCheckout} /> : !response.interpretation.needsClarification && <div className="empty-state"><Search size={26} /><h2>No close match</h2><p>{response.webSearch?.message ?? 'Try a clearer crop, a brand, or a model name.'}</p><button className="secondary-button" onClick={() => setShowEdit(true)}>Edit description</button></div>}
+          {selectedOffer && <ProductResult response={response} offer={selectedOffer} fallbackSrc={preview} pending={!!pending || mutating} onSelect={id => { setSelectedOfferId(id); setCheckout(null); }} onCheckout={reviewCheckout} />}
           {response.warnings.length > 0 && <details className="search-notes"><summary>Search notes</summary>{response.warnings.map(warning => <p key={warning}>{warning}</p>)}</details>}
-          {!response.interpretation.needsClarification && <form className="refine-form" onSubmit={event => { event.preventDefault(); if (instruction.trim() && !pending) void run({ path: '/refine', body: { sessionId: response.sessionId, instruction: instruction.trim() } }); }}><label htmlFor="refine-input">Refine your find</label><div className="refine-input-wrap"><input id="refine-input" placeholder="Similar, under USD 50…" value={instruction} maxLength={1000} onChange={event => setInstruction(event.target.value)} disabled={!!pending} /><button type="submit" aria-label="Refine recommendations" disabled={!instruction.trim() || !!pending}><ArrowUp size={18} /></button></div></form>}
+          {!needsQuestion && <form className="refine-form" onSubmit={event => { event.preventDefault(); if (instruction.trim() && !pending) void run({ path: '/refine', body: { sessionId: response.sessionId, instruction: instruction.trim() } }); }}><label htmlFor="refine-input">Refine your find</label><div className="refine-input-wrap"><input id="refine-input" placeholder="Similar, under USD 50…" value={instruction} maxLength={1000} onChange={event => setInstruction(event.target.value)} disabled={!!pending} /><button type="submit" aria-label="Refine recommendations" disabled={!instruction.trim() || !!pending}><ArrowUp size={18} /></button></div></form>}
         </section>}
       </>}
       {view !== 'find' && <>

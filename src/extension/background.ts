@@ -33,6 +33,7 @@ chrome.runtime.onInstalled.addListener(() => {
   // extension update too, so a stale tab does not keep only the native menu.
   void installInOpenPages().catch(() => {});
 });
+chrome.runtime.onStartup.addListener(() => { void installInOpenPages().catch(() => {}); });
 
 async function installInOpenPages(): Promise<void> {
   const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });

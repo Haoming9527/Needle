@@ -7,7 +7,7 @@ import { sampleCatalog, type SampleProduct } from './catalog.js';
 import { ApiError } from './errors.js';
 import { hasIdentifier, matchesModel, normalize, publicImageUrl } from './evidence.js';
 
-export interface StoredSession { selection: Selection; interpretation: Interpretation; preferences: Preferences; result: SearchResponse; createdAt: number }
+export interface StoredSession { selection: Selection; interpretation: Interpretation; preferences: Preferences; instructions?: string[]; result: SearchResponse; createdAt: number }
 type Row = Record<string, string | number | bigint | null | Uint8Array>;
 const parse = <T>(row: Row, key = 'data'): T => JSON.parse(String(row[key])) as T;
 const fingerprint = (request: DemoOrderRequest) => createHash('sha256').update(JSON.stringify([request.sessionId, request.offerId, request.variant ?? null, request.cartItemId ?? null, request.quantity ?? 1])).digest('hex');
@@ -28,6 +28,7 @@ export class NeedleDatabase {
       CREATE TABLE IF NOT EXISTS catalog (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS cart (id TEXT PRIMARY KEY, item_key TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS cart_operations (operation_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS orders (confirmation_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS cleared_order_confirmations (confirmation_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -93,7 +94,22 @@ export class NeedleDatabase {
     if (!row) throw new ApiError(404, 'CART_ITEM_MISSING', 'This item is no longer in your cart. Refresh the cart.');
     return parse<CartItem>(row);
   }
-  addCart(sessionId: string, offerId: string, variant?: string, quantity = 1): CartItem[] {
+  addCart(sessionId: string, offerId: string, variant?: string, quantity = 1, operationId?: string): CartItem[] {
+    if (!operationId) return this.addCartItem(sessionId, offerId, variant, quantity);
+    const signature = createHash('sha256').update(JSON.stringify([sessionId, offerId, variant ?? null, quantity])).digest('hex');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const previous = this.db.prepare('SELECT fingerprint FROM cart_operations WHERE operation_id = ?').get(operationId);
+      if (previous && previous.fingerprint !== signature) throw new ApiError(409, 'CART_OPERATION_CONFLICT', 'This cart action was already used for another selection. Start a new add-to-cart action.');
+      // Retain the guard after removal, checkout, or reset so a delayed retry
+      // cannot recreate an item the buyer already removed.
+      const items = previous ? this.cart() : this.addCartItem(sessionId, offerId, variant, quantity);
+      if (!previous) this.db.prepare('INSERT INTO cart_operations(operation_id,fingerprint) VALUES (?,?)').run(operationId, signature);
+      this.db.exec('COMMIT');
+      return items;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  private addCartItem(sessionId: string, offerId: string, variant?: string, quantity = 1): CartItem[] {
     const offer = this.session(sessionId).result.offers.find(value => value.id === offerId);
     if (!offer) throw new ApiError(409, 'OFFER_CHANGED', 'Find this item again before adding it to your cart.');
     const selected = variantFor(offer, variant);

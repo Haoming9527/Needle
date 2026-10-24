@@ -6,11 +6,14 @@ import type { ProductProvider, ProviderResult } from './provider.js';
 
 const stopWords = new Set(['a', 'an', 'the', 'find', 'this', 'that', 'with', 'for', 'on', 'me', 'some', 'something', 'similar', 'same', 'please', 'of', 'to', 'and']);
 function tokens(value: string): string[] { return normalize(value).split(' ').filter(token => token.length > 1 && !stopWords.has(token)); }
-function relevance(product: SampleProduct, text: string): number {
-  const words = tokens(text);
+function relevance(product: SampleProduct, text: string, category = ''): number {
+  const categoryWords = new Set(tokens(category));
+  const words = [...new Set(tokens(text))];
   const title = new Set(tokens(product.title));
   const description = new Set(tokens([...product.tags, ...product.attributes, product.color].join(' ')));
-  return words.reduce((score, word) => score + (title.has(word) ? 4 : description.has(word) ? 1 : 0), 0)
+  // Category membership is scored separately. A title saying "laptop" must not
+  // outrank a MacBook merely because its category is stored in tags instead.
+  return words.reduce((score, word) => score + (categoryWords.has(word) ? 0 : title.has(word) ? 4 : description.has(word) ? 1 : 0), 0)
     + (hasIdentifier(text, product.model) ? 12 : 0);
 }
 
@@ -37,21 +40,42 @@ export class SampleProvider implements ProductProvider {
   }
 
   async search(item: Interpretation, preferences: Preferences, _signal?: AbortSignal, instruction = ''): Promise<ProviderResult> {
-    const target = [item.name, item.productType, ...item.attributes].join(' ');
+    return this.findOffers(item, preferences, instruction, false);
+  }
+
+  /** Keep a wider catalog pool until Decisions sees the actual selected crop. */
+  async searchCandidates(item: Interpretation, preferences: Preferences, _signal?: AbortSignal, instruction = ''): Promise<ProviderResult> {
+    return this.findOffers(item, preferences, instruction, true);
+  }
+
+  private findOffers(item: Interpretation, preferences: Preferences, instruction: string, candidates: boolean): ProviderResult {
+    const target = [item.name, item.productType, item.brand, item.model, ...item.attributes].filter(Boolean).join(' ');
     const catalog = this.readCatalog();
     // Vision may say "backpack" while catalog records use "bag". Resolve that vocabulary
     // from the records themselves, without category-specific search branches.
     const knownType = catalog.find(product => normalize(product.productType) === normalize(item.productType))?.productType;
     const nearest = [...catalog].sort((a, b) => relevance(b, target) - relevance(a, target))[0];
     const productType = knownType ?? (nearest && relevance(nearest, target) >= 4 ? nearest.productType : item.productType);
-    const ranked = catalog.map(product => ({ product, score: relevance(product, target) + (productType !== 'item' && product.productType === productType ? 4 : 0) }))
-      .filter(({ product, score }) => score >= 4 && (productType === 'item' || product.productType === productType))
+    const ranked = catalog.map(product => ({ product,
+      score: relevance(product, target, productType) + (productType !== 'item' && normalize(product.productType) === normalize(productType) ? 4 : 0),
+      identity: (item.brand && hasIdentifier(`${product.brand} ${product.title}`, item.brand) ? 1 : 0)
+        + (item.model && matchesModel(`${product.model} ${product.title}`, item.model) ? 2 : 0),
+    }))
+      .filter(({ product, score }) => score >= 4 && (productType === 'item' || normalize(product.productType) === normalize(productType)))
       .filter(({ product }) => preferences.budget === undefined || (product.currency === preferences.currency && product.price !== null && product.price <= preferences.budget));
     ranked.sort((a, b) => {
+      if (a.identity !== b.identity) return b.identity - a.identity;
       if (/cheaper|lowest|affordable|budget/i.test(instruction) && a.product.currency === b.product.currency && a.product.price !== null && b.product.price !== null) return a.product.price - b.product.price;
       return b.score - a.score || relevance(b.product, instruction) - relevance(a.product, instruction);
     });
-    const offers: Offer[] = ranked.slice(0, 3).map(({ product }, index) => {
+    // Keep the strongest matches plus prepared records in a bounded pool. Cached
+    // web descriptions must not crowd all prepared products out of comparison.
+    const pool = candidates
+      ? [...ranked.slice(0, 4), ...ranked.filter(({ product }) => !product.referenceUrl), ...ranked]
+      : ranked;
+    const seen = new Set<string>();
+    const selected = pool.filter(({ product }) => { if (seen.has(product.id)) return false; seen.add(product.id); return true; }).slice(0, candidates ? 8 : 3);
+    const offers: Offer[] = selected.map(({ product }, index) => {
       const sameModel = !!item.model && !!item.brand && matchesModel(product.title, item.model) && hasIdentifier(product.title, item.brand);
       const exact = sameModel && item.identifierEvidence === 'text';
       const differences = exact ? [] : item.model && product.model ? [`Different model: ${product.model}.`] : ['Exact identity is unverified. Compare the design and features.'];

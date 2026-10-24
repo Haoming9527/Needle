@@ -10,6 +10,8 @@ const runtimeId = 'a'.repeat(32);
 const listeners = new Set<Listener>();
 const counts = { discover: 0, clarify: 0, cart: 0, buy: 0, cancel: 0, siteMenu: 0 };
 const askQuestion = new URLSearchParams(location.search).has('clarify');
+const emptyMatches = new URLSearchParams(location.search).has('empty');
+const dropFirstReply = new URLSearchParams(location.search).has('disconnect');
 const searchDelay = new URLSearchParams(location.search).has('loading') ? 30_000 : 800;
 const cancelled = new Set<string>();
 const selections = new Map<string, SearchResponse>();
@@ -49,6 +51,11 @@ async function sendMessage(message: Message): Promise<unknown> {
   }
   if (message.type === 'NEEDLE_OVERLAY_DISCOVER') {
     counts.discover++; report('Gesture received. Preparing the selected area…');
+    const previous = selections.get(id);
+    if (previous) {
+      report('Recovered the dropped reply using the same selection. No second capture.', { requestId: id });
+      return { result: previous };
+    }
     const prepared = await emit('NEEDLE_PREPARE_CAPTURE', id);
     await emit('NEEDLE_CAPTURE_FINISHED', id);
     if (prepared.error) { report(prepared.error); return prepared; }
@@ -61,12 +68,22 @@ async function sendMessage(message: Message): Promise<unknown> {
       result.interpretation.clarification = 'Do you mean the microphone or the headphones near your cursor?';
       result.offers = [];
     }
+    if (emptyMatches) {
+      result.offers = [];
+      result.decision = { status: 'no_match' };
+      result.webSearch = { status: 'used', message: 'Products were found, but none was a suitable match for your selection.' };
+    }
     selections.set(id, result);
+    if (dropFirstReply) {
+      report('Simulated a dropped runtime reply after discovery completed.', { requestId: id });
+      return undefined;
+    }
     report('Prepared result delivered. No network calls or captures occurred.', { text: prepared.text ?? null, geometry: prepared.geometry, variants: result.offers[0]?.variants });
     return { result };
   }
   if (message.type === 'NEEDLE_OVERLAY_CLARIFY') {
-    if (!selections.get(id)?.interpretation.needsClarification || !message.answer?.trim()) return { error: 'Answer the current fixture question.' };
+    const previous = selections.get(id);
+    if (!previous || (!previous.interpretation.needsClarification && previous.offers.length) || !message.answer?.trim()) return { error: 'Answer the current fixture question.' };
     counts.clarify++; report('Answer received. Reusing the original selection; no new capture.', { requestId: id, answer: message.answer });
     await new Promise(resolve => window.setTimeout(resolve, 1200));
     if (cancelled.has(id)) return { error: 'Cancelled.' };

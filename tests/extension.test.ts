@@ -14,7 +14,7 @@ beforeEach(async () => {
   vi.resetModules();
   values = {};
   api = {
-    runtime: { id: 'a'.repeat(32), onInstalled: event(), onMessage: event() },
+    runtime: { id: 'a'.repeat(32), onInstalled: event(), onStartup: event(), onMessage: event() },
     contextMenus: { onClicked: event(), removeAll: vi.fn(async () => {}), create: vi.fn(), update: vi.fn(async () => {}) },
     action: { onClicked: event() },
     sidePanel: { open: vi.fn(async () => {}) },
@@ -62,6 +62,12 @@ describe('extension context capture', () => {
     await vi.waitFor(() => expect(api.scripting.executeScript).toHaveBeenCalled());
     expect(api.scripting.executeScript).toHaveBeenCalledTimes(1);
     expect(api.scripting.executeScript).toHaveBeenCalledWith({ target: { tabId: 12 }, files: ['content.js'], injectImmediately: true });
+  });
+  it('reattaches the popup to restored webpages after browser startup', async () => {
+    api.runtime.onStartup.emit();
+    await vi.waitFor(() => expect(api.scripting.executeScript).toHaveBeenCalled());
+    expect(api.scripting.executeScript).toHaveBeenCalledWith({ target: { tabId: 12 }, files: ['content.js'], injectImmediately: true });
+    expect(api.tabs.captureVisibleTab).not.toHaveBeenCalled();
   });
   it('opens the side panel synchronously with the user gesture and captures selected text without a screenshot', async () => {
     api.contextMenus.onClicked.emit({ menuItemId: 'needle-find', selectionText: 'Sony WH-1000XM5' }, tab);

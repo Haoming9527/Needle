@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { ServerConfig } from './config.js';
 import type { NeedleDatabase } from './database.js';
 import { ApiError } from './errors.js';
+import { searchRecoveryQuestion } from '../shared/search-recovery.js';
 
 const questionSchema = z.object({ sessionId: z.string().uuid() }).strict();
 const transcriptionSchema = questionSchema.extend({ audioDataUrl: z.string().max(4_000_000) }).strict();
@@ -28,8 +29,8 @@ function recordingBytes(dataUrl: string): Buffer {
 
 function pendingQuestion(database: NeedleDatabase, sessionId: string): string {
   const session = database.session(sessionId);
-  if (!session.interpretation.needsClarification) throw new ApiError(409, 'NO_QUESTION_PENDING', 'There is no question to answer for this selection.');
-  return (session.interpretation.clarification?.trim() || 'Which object do you want to find?').slice(0, 500);
+  if (!session.interpretation.needsClarification && session.result.offers.length) throw new ApiError(409, 'NO_QUESTION_PENDING', 'There is no question to answer for this selection.');
+  return (session.interpretation.clarification?.trim() || searchRecoveryQuestion(session.interpretation)).slice(0, 500);
 }
 
 function voiceProvider(config: ServerConfig) {

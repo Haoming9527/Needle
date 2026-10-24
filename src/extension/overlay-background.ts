@@ -1,4 +1,5 @@
-import type { CapturedSelection, SearchResponse, Selection } from '../../shared/types';
+import type { CapturedSelection, CartResponse, SearchResponse, Selection } from '../../shared/types';
+import { searchRecoveryQuestion } from '../../shared/search-recovery';
 import { cropFocus, mediaCrop, sameGeometry, type CropBox, type MediaGeometry } from './geometry';
 import { createShoppingGate, type ShoppingGate } from './preferences';
 
@@ -6,6 +7,7 @@ const API = 'http://127.0.0.1:4318';
 const active = new Map<number, { id: string; controller: AbortController }>();
 const voiceActive = new Map<number, { id: string; controller: AbortController }>();
 const cacheWrites = new Map<number, Promise<void>>();
+const discoveries = new Map<number, { id: string; promise: Promise<{ result: SearchResponse; imageDataUrl: string }> }>();
 let shopping: ShoppingGate;
 let disabledGeneration = 0;
 const cacheKey = (tabId: number) => `needle.overlay.${tabId}`;
@@ -24,9 +26,17 @@ function withCache<T>(tabId: number, work: () => Promise<T>): Promise<T> {
 }
 
 function senderTab(sender: chrome.runtime.MessageSender): chrome.tabs.Tab | null {
-  if (sender.id !== chrome.runtime.id || sender.frameId !== 0 || sender.tab?.id == null || !sender.url || !/^https?:\/\//.test(sender.url)) return null;
-  if (sender.tab.url !== sender.url) return null;
-  return sender.tab;
+  if (sender.id !== chrome.runtime.id || sender.frameId !== 0 || sender.tab?.id == null) return null;
+  try {
+    const url = sender.tab.url || sender.url;
+    const page = new URL(url!);
+    const source = new URL(sender.url || sender.origin || '');
+    if (!/^https?:$/.test(page.protocol) || !/^https?:$/.test(source.protocol) || page.origin !== source.origin) return null;
+    // SPA navigation can update the tab URL while Chrome's sending document
+    // retains its original URL. Authenticate the origin, not the route. Capture
+    // still verifies the active tab, current URL, request ID, and geometry.
+    return { ...sender.tab, url };
+  } catch { return null; }
 }
 async function request<T>(path: '/discover' | '/clarify' | '/cart' | '/voice/question' | '/voice/transcribe', body: unknown, signal?: AbortSignal): Promise<T> {
   shopping.assertEnabled();
@@ -120,16 +130,29 @@ async function withSearch<T>(tab: chrome.tabs.Tab, requestId: string, work: (sig
     if (active.get(tabId)?.controller === controller) active.delete(tabId);
   }
 }
-async function discover(tab: chrome.tabs.Tab, requestId: string): Promise<{ result: SearchResponse; imageDataUrl: string }> {
+function discover(tab: chrome.tabs.Tab, requestId: string): Promise<{ result: SearchResponse; imageDataUrl: string }> {
+  const running = discoveries.get(tab.id!);
+  if (running?.id === requestId) return running.promise;
+  const promise = discoverOnce(tab, requestId);
+  discoveries.set(tab.id!, { id: requestId, promise });
+  const clear = () => { if (discoveries.get(tab.id!)?.promise === promise) discoveries.delete(tab.id!); };
+  void promise.then(clear, clear);
+  return promise;
+}
+async function discoverOnce(tab: chrome.tabs.Tab, requestId: string): Promise<{ result: SearchResponse; imageDataUrl: string }> {
   const tabId = tab.id!;
   voiceActive.get(tabId)?.controller.abort();
   try {
     return await withSearch(tab, requestId, async (signal, assertCurrent) => {
-    await withCache(tabId, async () => {
+    const previous = await withCache(tabId, async () => {
       assertCurrent();
+      const value = (await chrome.storage.session.get(cacheKey(tabId)))[cacheKey(tabId)] as Cached | undefined;
+      assertCurrent();
+      if (value?.requestId === requestId && value.pageUrl === tab.url) return value;
       await chrome.storage.session.remove(cacheKey(tabId));
     });
     assertCurrent();
+    if (previous) return { result: previous.result, imageDataUrl: previous.captured.selection.imageDataUrl! };
     const prepared = await chrome.tabs.sendMessage(tabId, { type: 'NEEDLE_PREPARE_CAPTURE', requestId }, { frameId: 0 }) as Prepared;
     if (!prepared?.geometry) throw new Error('The selected area is no longer available. Right-click it again.');
     const box = mediaCrop(prepared.geometry);
@@ -160,16 +183,24 @@ async function cached(tab: chrome.tabs.Tab, requestId: string): Promise<Cached> 
   if (!value || value.requestId !== requestId || value.pageUrl !== tab.url) throw new Error('This selection has expired. Right-click the object again.');
   return value;
 }
+async function cartOperationId(requestId: string, offerId: string, variant?: string): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify([requestId, offerId, variant ?? null]));
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return `cart-${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+}
 async function clarify(tab: chrome.tabs.Tab, requestId: string, answer: string): Promise<{ result: SearchResponse; imageDataUrl?: string }> {
   voiceActive.get(tab.id!)?.controller.abort();
   return withSearch(tab, requestId, async (signal, assertCurrent) => {
     const value = await cached(tab, requestId);
     assertCurrent();
-    if (!value.result.interpretation.needsClarification) throw new Error('This selection is already ready. Choose an item or right-click again.');
+    if (!value.result.interpretation.needsClarification && value.result.offers.length) throw new Error('This selection is already ready. Choose an item or right-click again.');
     // Reuse the exact original frame. A later screenshot could include the popup or a different video frame.
     const result = await request<SearchResponse>('/clarify', { sessionId: value.result.sessionId, answer, selection: value.captured.selection }, signal);
     assertCurrent();
-    const selection: Selection = { ...value.captured.selection, clarifications: [...(value.captured.selection.clarifications ?? []), { question: value.result.interpretation.clarification ?? 'Which item do you mean?', answer }].slice(-5) };
+    const question = value.result.interpretation.clarification || (value.result.interpretation.needsClarification
+      ? 'Which item do you mean?'
+      : searchRecoveryQuestion(value.result.interpretation));
+    const selection: Selection = { ...value.captured.selection, clarifications: [...(value.captured.selection.clarifications ?? []), { question, answer }].slice(-5) };
     const captured: CapturedSelection = { ...value.captured, selection, result };
     await withCache(tab.id!, async () => {
       assertCurrent();
@@ -195,7 +226,7 @@ async function voiceRequest(tab: chrome.tabs.Tab, requestId: string, audioDataUr
   try {
     const value = await cached(tab, requestId);
     assertCurrent();
-    if (!value.result.interpretation.needsClarification) throw new Error('There is no question to answer.');
+    if (!value.result.interpretation.needsClarification && value.result.offers.length) throw new Error('There is no question to answer.');
     const response = audioDataUrl === undefined
       ? await request<{ audioDataUrl: string }>('/voice/question', { sessionId: value.result.sessionId }, controller.signal)
       : await request<{ text: string }>('/voice/transcribe', { sessionId: value.result.sessionId, audioDataUrl }, controller.signal);
@@ -216,8 +247,12 @@ export function installOverlayMessages(): void {
   });
   void shopping.ready.catch(() => {});
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (sender.id !== chrome.runtime.id || sender.frameId !== 0 || sender.tab?.id == null || typeof message?.type !== 'string' || !message.type.startsWith('NEEDLE_OVERLAY_')) return;
+    if (typeof message.requestId !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(message.requestId)) {
+      respond({ error: 'This selection is no longer valid. Right-click the item again.' }); return;
+    }
     const tab = senderTab(sender);
-    if (!tab || !message || typeof message.requestId !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(message.requestId)) return;
+    if (!tab) { respond({ error: 'The page changed or could not be verified. Right-click the item in the current tab again.' }); return; }
     if (message.type === 'NEEDLE_OVERLAY_VOICE_CANCEL') {
       if (voiceActive.get(tab.id!)?.id === message.requestId) voiceActive.get(tab.id!)?.controller.abort();
       respond({ ok: true }); return;
@@ -265,7 +300,14 @@ export function installOverlayMessages(): void {
       if (enabledSignal.aborted) throw new Error('Selection cancelled.');
       const offer = value.result.offers.find(item => item.id === message.offerId);
       if (!offer) throw new Error('Choose an available result.');
-      if (message.type === 'NEEDLE_OVERLAY_CART') return request('/cart', { sessionId: value.result.sessionId, offerId: offer.id, variant: message.variant });
+      if (message.type === 'NEEDLE_OVERLAY_CART') {
+        const operationId = await cartOperationId(message.requestId, offer.id, message.variant);
+        shopping.assertEnabled();
+        if (enabledSignal.aborted) throw new Error('Selection cancelled.');
+        const cart = await request<CartResponse>('/cart', { sessionId: value.result.sessionId, offerId: offer.id, variant: message.variant, operationId }, AbortSignal.any([enabledSignal, AbortSignal.timeout(10_000)]));
+        if (!cart || !Array.isArray(cart.items)) throw new Error('The cart action could not be confirmed. Check your cart or try again.');
+        return cart;
+      }
       await chrome.storage.session.set({ 'needle.selection': { ...value.captured, id: crypto.randomUUID(), intent: 'buy', offerId: offer.id, variant: message.variant } satisfies CapturedSelection });
       return { ok: true };
     }).then(respond).catch(error => respond({ error: error instanceof Error ? error.message : 'Could not continue. Try again.' }));

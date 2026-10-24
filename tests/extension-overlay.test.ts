@@ -103,6 +103,34 @@ describe('automatic right-click workflow', () => {
     expect(request.selection.pageUrl).toBe(website.url);
     expect(request.mode).toBe('sample');
   });
+  it('answers a top-frame gesture after a same-origin SPA route change', async () => {
+    const current = { ...tab, url: 'https://www.instagram.com/reels/product/', title: 'Instagram' };
+    api.tabs.query.mockResolvedValue([current]);
+    const respond = vi.fn();
+    api.runtime.onMessage.emit({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-spa' },
+      { ...sender, tab: current, url: 'https://www.instagram.com/' }, respond);
+    await vi.waitFor(() => expect(respond).toHaveBeenCalled(), { timeout: 1000 });
+    expect(respond.mock.calls[0][0].result.sessionId).toBe(result.sessionId);
+    const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(body.selection.pageUrl).toBe(current.url);
+  });
+  it('uses the verified top-frame origin when Chrome omits the sender URL', async () => {
+    const response = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-origin' },
+      { ...sender, url: undefined, origin: 'https://x.com' });
+    expect(response.result.sessionId).toBe(result.sessionId);
+    expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+  });
+  it('returns an explicit page error for mismatched origins without capturing', async () => {
+    const response = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-foreign-origin' },
+      { ...sender, url: 'https://x.com.unrelated.example/home' });
+    expect(response.error).toContain('page changed');
+    expect(api.tabs.captureVisibleTab).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('answers malformed requests from its own top-frame script instead of dropping the reply', async () => {
+    const response = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: '' });
+    expect(response.error).toContain('selection is no longer valid');
+    expect(api.tabs.captureVisibleTab).not.toHaveBeenCalled();
+  });
   it('uploads only the locally cropped media and stores the discovered result', async () => {
     const response = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-123' });
     expect(response.result.sessionId).toBe(result.sessionId);
@@ -112,6 +140,24 @@ describe('automatic right-click workflow', () => {
     expect(request.screenshotDataUrl).toBeUndefined();
     expect(saved['needle.overlay.12'].result).toEqual(result);
     expect(api.tabs.sendMessage.mock.calls[0][1].type).toBe('NEEDLE_PREPARE_CAPTURE');
+  });
+  it('replays the same completed discovery without recapturing a later video frame', async () => {
+    const first = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-retry' });
+    const retry = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-retry' });
+    expect(retry).toEqual(first);
+    expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('joins a discovery still running when its message channel is retried', async () => {
+    let finish!: () => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { finish = () => resolve(Response.json(result)); }));
+    const first = message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-inflight' });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    const retry = message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-inflight' });
+    finish();
+    expect(await retry).toEqual(await first);
+    expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('rejects messages from frames, foreign extensions, and internal pages', () => {
     const respond = vi.fn();
@@ -186,8 +232,43 @@ describe('automatic right-click workflow', () => {
     await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-123' });
     const invalid = await message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-123', offerId: 'injected' });
     expect(invalid.error).toBeTruthy(); expect(fetch).toHaveBeenCalledTimes(1);
-    await message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-123', offerId: 'mic', variant: 'Black' });
+    const cart = { items: [{ id: 'cart-mic', sessionId: result.sessionId, offer: result.offers[0], variant: 'Black', quantity: 1, createdAt: '2026-10-25T00:00:00.000Z' }] };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(cart));
+    expect(await message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-123', offerId: 'mic', variant: 'Black' })).toEqual(cart);
     expect(vi.mocked(fetch).mock.calls[1][0]).toBe('http://127.0.0.1:4318/cart');
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string).operationId).toMatch(/^cart-[a-f0-9]{64}$/);
+  });
+  it('keeps cart retry keys stable while allowing a different offer or variant in the popup', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...result, offers: [
+      { ...result.offers[0], variants: ['Black', 'White'] }, { id: 'mic-other', title: 'Another microphone', variants: ['Black'] },
+    ] }));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-cart-keys' });
+    for (const [offerId, variant] of [['mic', 'Black'], ['mic', 'Black'], ['mic', 'White'], ['mic-other', 'Black']]) {
+      await message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-cart-keys', offerId, variant });
+    }
+    const keys = vi.mocked(fetch).mock.calls.slice(1).map(([, init]) => JSON.parse(init!.body as string).operationId);
+    expect(keys[0]).toBe(keys[1]);
+    expect(new Set(keys)).toHaveLength(3);
+  });
+  it('does not send an old cart action if Needle is switched off then on while its key is prepared', async () => {
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-cart-off' });
+    let finish!: () => void;
+    const digest = vi.spyOn(crypto.subtle, 'digest').mockImplementationOnce(() => new Promise<ArrayBuffer>(resolve => { finish = () => resolve(new ArrayBuffer(32)); }));
+    try {
+      const pending = message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-cart-off', offerId: 'mic', variant: 'Black' });
+      await vi.waitFor(() => expect(digest).toHaveBeenCalled());
+      api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+      api.storage.onChanged.emit({ 'needle.enabled': { newValue: true } }, 'local');
+      finish();
+      expect((await pending).error).toContain('cancelled');
+      expect(fetch).toHaveBeenCalledTimes(1);
+    } finally { digest.mockRestore(); }
+  });
+  it.each([null, {}, { items: null }])('does not confirm a malformed cart response: %j', async payload => {
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-cart-invalid' });
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(payload));
+    const response = await message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-cart-invalid', offerId: 'mic', variant: 'Black' });
+    expect(response.error).toContain('could not be confirmed');
   });
   it('answers a question with the original marked frame and buys from the new result', async () => {
     const question = { ...result, interpretation: { name: 'Object', needsClarification: true, clarification: 'The guitar or the shirt?' }, offers: [] };
@@ -213,6 +294,20 @@ describe('automatic right-click workflow', () => {
     expect(saved['needle.overlay.12'].result).toEqual(question);
     expect((await message({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: 'selection-retry', answer: 'Guitar' })).result).toEqual(result);
     expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+  });
+  it('continues an empty result with the original crop and accepts a voice answer', async () => {
+    const empty = { ...result, interpretation: { name: 'Black microphone', productType: 'microphone', needsClarification: false, clarification: null }, offers: [] };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(empty));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-empty' });
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ text: 'A similar black microphone' }));
+    expect(await message({ type: 'NEEDLE_OVERLAY_TRANSCRIBE', requestId: 'selection-empty', audioDataUrl: 'data:audio/webm;base64,AAAA' })).toEqual({ text: 'A similar black microphone' });
+    const response = await message({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: 'selection-empty', answer: 'A similar black microphone' });
+    expect(response.result).toEqual(result);
+    expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+    const [url, init] = vi.mocked(fetch).mock.calls[2];
+    expect(url).toBe('http://127.0.0.1:4318/clarify');
+    expect(JSON.parse(init!.body as string)).toMatchObject({ sessionId: empty.sessionId, answer: 'A similar black microphone', selection: { annotatedImageDataUrl: 'data:image/jpeg;base64,BAUG', imageDataUrl: 'data:image/jpeg;base64,AQID', focus: { x: 0.5, y: 0.5 } } });
+    expect(saved['needle.overlay.12'].captured.selection.clarifications[0].answer).toBe('A similar black microphone');
   });
   it('discards a clarification when the popup is cancelled', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...result, interpretation: { needsClarification: true, clarification: 'Which item?' }, offers: [] }));

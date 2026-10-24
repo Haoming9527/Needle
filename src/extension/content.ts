@@ -1,5 +1,6 @@
 import type { Offer, SearchResponse } from '../../shared/types';
 import { offerSource } from '../../shared/offer-source';
+import { searchRecoveryQuestion } from '../../shared/search-recovery';
 import { mediaCrop } from './geometry';
 import { targetAt, targetGeometry, targetText, type ShoppingTarget } from './target';
 import { createVoiceSession, type VoiceSession, type VoiceState } from '../voice/voice-client';
@@ -21,7 +22,13 @@ interface DiscoveryReply { result?: SearchResponse; imageDataUrl?: string; error
 type ContentGlobal = typeof globalThis & { __needleContentDispose?: () => void };
 const contentGlobal = globalThis as ContentGlobal;
 contentGlobal.__needleContentDispose?.();
-const extensionId = chrome.runtime.id;
+const runtime = chrome.runtime;
+const extensionId = runtime.id;
+// A replacement isolated world cannot access the previous world's globals.
+// A DOM event lets that world's listeners dispose themselves without a reload.
+const replacementEvent = `needle:content-replaced:${extensionId}`;
+window.dispatchEvent(new Event(replacementEvent));
+for (const host of document.documentElement.querySelectorAll(`[data-needle-popup="${extensionId}"]`)) host.remove();
 let current: Popup | null = null;
 const shopping = createShoppingGate(enabled => { if (!enabled) dismiss(); });
 void shopping.ready.catch(() => { dismiss(); });
@@ -36,11 +43,11 @@ function node<K extends keyof HTMLElementTagNameMap>(name: K, text?: string): HT
 function send<T>(message: unknown): Promise<T> {
   const type = typeof message === 'object' && message !== null && 'type' in message ? message.type : '';
   if (type !== 'NEEDLE_OVERLAY_CANCEL' && type !== 'NEEDLE_OVERLAY_VOICE_CANCEL' && !shopping.isEnabled()) return Promise.reject(new Error('Needle is off. Turn it on in the side panel.'));
-  try { return chrome.runtime.sendMessage(message) as Promise<T>; }
-  catch { return Promise.reject(new Error('Refresh this page after reloading Needle.')); }
+  try { return Promise.resolve(runtime.sendMessage(message)) as Promise<T>; }
+  catch (error) { return Promise.reject(error); }
 }
 function connected(): boolean {
-  try { return !!extensionId && chrome.runtime?.id === extensionId; } catch { return false; }
+  try { return !!extensionId && runtime.id === extensionId; } catch { return false; }
 }
 function position(popup: Popup): void {
   // Reserve room for a question or result before anchoring. Content changes must
@@ -146,7 +153,7 @@ function showResponse(popup: Popup, response: DiscoveryReply | undefined): void 
   popup.pending = false;
   popup.voice?.cancel(); updateVoiceControls(popup);
   popup.host.style.setProperty('visibility', 'visible', 'important');
-  if (!response?.result || response.error) { fail(popup, response?.error || 'Refresh the page after loading Needle, then right-click again.'); return; }
+  if (!response?.result || response.error) { fail(popup, response?.error || 'Needle could not reconnect. Right-click the item to try again.'); return; }
   popup.result = response.result;
   popup.offers.replaceChildren(); popup.offers.hidden = true;
   popup.variants.replaceChildren(); popup.variants.hidden = true;
@@ -154,15 +161,16 @@ function showResponse(popup: Popup, response: DiscoveryReply | undefined): void 
   popup.reply.remove();
   popup.answer.disabled = false; popup.answer.value = ''; popup.submit.disabled = true;
   if (response.imageDataUrl) imagePreview(popup, response.imageDataUrl);
-  if (response.result.interpretation.needsClarification) {
-    popup.status.textContent = response.result.interpretation.clarification || 'Which object near your cursor would you like?';
+  if (response.result.interpretation.needsClarification || !response.result.offers.length) {
+    const question = response.result.interpretation.clarification || (response.result.interpretation.needsClarification
+      ? 'Which object near your cursor would you like?'
+      : searchRecoveryQuestion(response.result.interpretation));
+    const webSearch = response.result.webSearch;
+    popup.status.textContent = webSearch && (webSearch.status === 'failed' || webSearch.status === 'unavailable')
+      ? `${webSearch.message} ${question}` : question;
     popup.panel.append(popup.reply);
     updateButtons(popup);
     return;
-  }
-  if (!response.result.offers.length) {
-    popup.status.textContent = response.result.webSearch?.message || 'No close match. Right-click closer to the object, or describe it in Needle.';
-    updateButtons(popup); return;
   }
   for (const offer of response.result.offers) { const option = node('option', offer.title); option.value = offer.id; popup.offers.append(option); }
   popup.offers.value = response.result.offers[0].id;
@@ -171,12 +179,12 @@ function showResponse(popup: Popup, response: DiscoveryReply | undefined): void 
 }
 function answerQuestion(popup: Popup): void {
   const answer = popup.answer.value.trim();
-  if (current !== popup || popup.pending || !answer || !popup.result?.interpretation.needsClarification) return;
+  if (current !== popup || popup.pending || !answer || !popup.result || (!popup.result.interpretation.needsClarification && popup.result.offers.length)) return;
   popup.answer.disabled = true; popup.submit.disabled = true;
   startLoading(popup); updateButtons(popup);
   void send<DiscoveryReply>({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: popup.id, answer })
     .then(response => showResponse(popup, response))
-    .catch(() => fail(popup, 'Could not send your answer. Try again, or refresh after reloading Needle.'));
+    .catch(() => fail(popup, 'Could not send your answer. Try again.'));
 }
 function updateVoiceControls(popup: Popup): void {
   const phase = popup.voiceState.phase;
@@ -192,6 +200,7 @@ function updateVoiceControls(popup: Popup): void {
 }
 function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
   const host = node('div');
+  host.setAttribute('data-needle-popup', extensionId);
   host.style.cssText = `position:fixed!important;left:${x}px!important;top:${y}px!important;right:auto!important;bottom:auto!important;z-index:2147483647!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;overflow:visible!important;width:max-content!important;height:auto!important;max-width:calc(100vw - 16px)!important;visibility:visible!important;animation:none!important;transition:none!important;transform:none!important;`;
   const shadow = host.attachShadow({ mode: 'closed' });
   const style = node('style');
@@ -287,10 +296,10 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
       buy.disabled = true; cart.disabled = true;
       void send<{ error?: string }>({ type, requestId: popup.id, offerId: offer.id, variant: variants.value || undefined }).then(response => {
         if (current !== popup) return;
-        if (response?.error) { popup.status.textContent = response.error; updateButtons(popup); return; }
+        if (!response || response.error) { popup.status.textContent = response?.error || 'The action could not be confirmed. Check your cart or right-click again.'; updateButtons(popup); return; }
         if (type === 'NEEDLE_OVERLAY_BUY') { dismiss(); return; }
         popup.added = true; cart.textContent = 'Added'; popup.status.textContent = 'Saved to your cart.'; updateButtons(popup);
-      }).catch(() => { if (current === popup) { popup.status.textContent = 'Refresh this page after reloading Needle.'; updateButtons(popup); } });
+      }).catch(() => { if (current === popup) { popup.status.textContent = 'The action could not be confirmed. Check your cart or right-click again.'; updateButtons(popup); } });
     });
   }
   return popup;
@@ -305,9 +314,23 @@ function onContextMenu(event: MouseEvent): void {
   dismiss();
   const popup = makePopup(target, event.clientX, event.clientY);
   current = popup;
-  void send<DiscoveryReply>({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: popup.id })
-    .then(response => showResponse(popup, response))
-    .catch(() => fail(popup, 'Needle was reloaded. Refresh this page and try again.'));
+  void discover(popup);
+}
+async function discover(popup: Popup): Promise<void> {
+  // A worker wake-up or dropped message channel is not an invalidated page.
+  // Retry discovery only; the worker reuses this request's captured frame/result.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (current !== popup || !shopping.isEnabled()) return;
+    if (!connected()) { dismiss(); return; }
+    let response: DiscoveryReply | undefined;
+    try { response = await send<DiscoveryReply>({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: popup.id }); }
+    catch { /* A lost channel can recover once while this selection is current. */ }
+    if (current !== popup || !shopping.isEnabled()) return;
+    if (!connected()) { dismiss(); return; }
+    if (response?.result || response?.error) { showResponse(popup, response); return; }
+    if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 200));
+  }
+  showResponse(popup, undefined);
 }
 function imagePreview(popup: Popup, source: string): void { if (/^data:image\/jpeg;base64,/.test(source)) { popup.image.src = source; popup.image.hidden = false; } }
 
@@ -316,7 +339,7 @@ function onPointerDown(event: PointerEvent): void { if (current && !event.compos
 function onResize(): void { if (current) position(current); }
 const onMessage: Parameters<typeof chrome.runtime.onMessage.addListener>[0] = (message, sender, respond) => {
   const popup = current;
-  if (sender.id !== chrome.runtime.id || !popup || message?.requestId !== popup.id) return;
+  if (!connected() || sender.id !== extensionId || !popup || message?.requestId !== popup.id) return;
   if (message.type === 'NEEDLE_CAPTURE_FINISHED') { popup.host.style.setProperty('visibility', 'visible', 'important'); respond({ ok: true }); return; }
   if (!['NEEDLE_PREPARE_CAPTURE', 'NEEDLE_VALIDATE_CAPTURE'].includes(message.type)) return;
   const prepare = () => {
@@ -337,8 +360,9 @@ window.addEventListener('keydown', onKeyDown, { capture: true });
 window.addEventListener('pointerdown', onPointerDown, { capture: true });
 window.addEventListener('pagehide', dismiss);
 window.addEventListener('resize', onResize);
-chrome.runtime.onMessage.addListener(onMessage);
-contentGlobal.__needleContentDispose = () => {
+runtime.onMessage.addListener(onMessage);
+window.addEventListener(replacementEvent, dispose);
+function dispose(): void {
   dismiss();
   shopping.dispose();
   window.removeEventListener('contextmenu', onContextMenu, { capture: true });
@@ -346,5 +370,7 @@ contentGlobal.__needleContentDispose = () => {
   window.removeEventListener('pointerdown', onPointerDown, { capture: true });
   window.removeEventListener('pagehide', dismiss);
   window.removeEventListener('resize', onResize);
-  try { chrome.runtime.onMessage.removeListener(onMessage); } catch { /* Previous extension context was invalidated. */ }
-};
+  window.removeEventListener(replacementEvent, dispose);
+  try { runtime.onMessage.removeListener(onMessage); } catch { /* Previous extension context was invalidated. */ }
+}
+contentGlobal.__needleContentDispose = dispose;

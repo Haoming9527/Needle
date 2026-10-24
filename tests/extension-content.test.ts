@@ -55,6 +55,7 @@ class FakeElement {
   addEventListener(type: string, fn: (...args: any[]) => void) { if (!this.listeners.has(type)) this.listeners.set(type, new Set()); this.listeners.get(type)!.add(fn); }
   removeEventListener(type: string, fn: (...args: any[]) => void) { this.listeners.get(type)?.delete(fn); }
   emit(type: string, value: unknown = {}) { for (const fn of this.listeners.get(type) ?? []) fn(value); }
+  dispatchEvent(event: Event) { this.emit(event.type, event); return true; }
 }
 const asElement = (value: FakeElement) => value as unknown as Element;
 const extensionId = 'a'.repeat(32);
@@ -221,6 +222,60 @@ describe('content-script action toolbar', () => {
     windowEvents.emit('contextmenu', click(new FakeElement('div')));
     expect(sendMessage).toHaveBeenCalledTimes(1); expect(runtimeEvents.size).toBe(1);
   });
+  it('retries a dropped discovery reply once without moving the popup or recapturing a new target', async () => {
+    vi.useFakeTimers();
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    const host = popup(), requestId = sendMessage.mock.calls[0][0].requestId;
+    sendMessage.mockResolvedValueOnce({ result: searchResult() });
+    finishDiscovery(undefined); await vi.advanceTimersByTimeAsync(300);
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toEqual([
+      [{ type: 'NEEDLE_OVERLAY_DISCOVER', requestId }], [{ type: 'NEEDLE_OVERLAY_DISCOVER', requestId }],
+    ]);
+    expect(popup()).toBe(host);
+    expect(host.shadow!.querySelector('h2')!.textContent).toBe('Black F-style mandolin');
+    expect(host.shadow!.querySelectorAll('p').some(p => /Refresh the page/i.test(p.textContent))).toBe(false);
+  });
+  it('does not retry a dropped reply after the shopper cancels', async () => {
+    vi.useFakeTimers();
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    finishDiscovery(undefined); await Promise.resolve();
+    popup().shadow!.querySelectorAll('button')[2].emit('click');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toHaveLength(1);
+    expect(root.children).toHaveLength(0);
+  });
+  it('stops after one reconnect attempt and gives a retry action instead of a refresh instruction', async () => {
+    vi.useFakeTimers();
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    sendMessage.mockResolvedValueOnce(undefined);
+    finishDiscovery(undefined); await vi.advanceTimersByTimeAsync(5000);
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toHaveLength(2);
+    expect(popup().shadow!.querySelectorAll('p').some(p => p.textContent.includes('Right-click the item to try again'))).toBe(true);
+    expect(targetMarker().hidden).toBe(true);
+  });
+  it('does not reconnect after the extension is switched off', async () => {
+    vi.useFakeTimers();
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    finishDiscovery(undefined); await Promise.resolve();
+    storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toHaveLength(1);
+    expect(root.children).toHaveLength(0);
+  });
+  it('cleans an invalidated isolated world when the new content script attaches', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    const oldHost = popup();
+    runtime.id = undefined;
+    delete (globalThis as typeof globalThis & { __needleContentDispose?: () => void }).__needleContentDispose;
+    runtime = { ...runtime, id: extensionId };
+    (chrome as any).runtime = runtime;
+    vi.resetModules(); await import('../src/extension/content');
+    expect(root.children).not.toContain(oldHost);
+    sendMessage.mockClear();
+    windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toHaveLength(1);
+    expect(windowEvents.listeners.get('contextmenu')!.size).toBe(1);
+  });
   it('answers a clarification in the same popup and retains the original selected preview', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
     const requestId = sendMessage.mock.calls[0][0].requestId;
@@ -257,6 +312,45 @@ describe('content-script action toolbar', () => {
     expect(form.querySelectorAll('p').some(p => p.textContent.includes('Type your answer'))).toBe(true);
     expect(popup().shadow!.querySelectorAll('p').some(p => p.textContent === 'Do you mean the black instrument or the shirt?')).toBe(true);
     expect(sendMessage.mock.calls.some(([message]) => message.type === 'NEEDLE_OVERLAY_CLARIFY')).toBe(false);
+  });
+  it('lets the buyer recover from empty matches in the same popup with text or voice', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    const requestId = sendMessage.mock.calls[0][0].requestId;
+    finishDiscovery({ result: { ...searchResult(), offers: [], webSearch: { status: 'used', message: 'Products were found, but none was a suitable match for your selection.' } }, imageDataUrl: 'data:image/jpeg;base64,b3JpZ2luYWw=' });
+    await Promise.resolve();
+    const host = popup(), form = host.shadow!.querySelector('form');
+    expect(form).not.toBeNull();
+    expect(form!.querySelector('[aria-label="Answer by voice"]')).not.toBeNull();
+    expect(host.shadow!.querySelectorAll('p').some(p => p.textContent.includes('mandolin') && p.textContent.includes('?'))).toBe(true);
+    const actions = host.shadow!.querySelectorAll('button').slice(0, 3);
+    expect(actions.map(button => button.textContent)).toEqual(['Buy', 'Add to cart', '×']);
+    expect(actions.map(button => button.disabled)).toEqual([true, true, false]);
+    const input = form!.querySelector('input')!;
+    input.value = 'A similar black mandolin is fine'; input.emit('input');
+    sendMessage.mockResolvedValueOnce({ result: searchResult() });
+    form!.emit('submit', { preventDefault: vi.fn() }); await Promise.resolve();
+    expect(sendMessage).toHaveBeenCalledWith({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId, answer: 'A similar black mandolin is fine' });
+    expect(popup()).toBe(host);
+    expect(host.shadow!.querySelector('img')!.src).toBe('data:image/jpeg;base64,b3JpZ2luYWw=');
+    expect(host.shadow!.querySelector('form')).toBeNull();
+    expect(actions[0].disabled).toBe(false);
+  });
+  it('preserves a web search outage message alongside an editable recovery question', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    finishDiscovery({ result: { ...searchResult(), offers: [], webSearch: { status: 'unavailable', message: 'Set EXA_API_KEY to enable web search.' } } });
+    await Promise.resolve();
+    expect(popup().shadow!.querySelectorAll('p').some(p => p.textContent.includes('Set EXA_API_KEY') && p.textContent.includes('mandolin') && p.textContent.includes('?'))).toBe(true);
+    expect(popup().shadow!.querySelector('form')).not.toBeNull();
+  });
+  it('does not claim a cart action succeeded or replay it when its response is missing', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    finishDiscovery({ result: searchResult() }); await Promise.resolve();
+    sendMessage.mockResolvedValueOnce(undefined);
+    const cart = popup().shadow!.querySelectorAll('button')[1];
+    cart.emit('click'); await Promise.resolve();
+    expect(cart.textContent).toBe('Add to cart');
+    expect(popup().shadow!.querySelectorAll('p').some(p => p.textContent.includes('could not be confirmed'))).toBe(true);
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_CART')).toHaveLength(1);
   });
   it('preserves an answer for retry after a failed clarification and ignores completion after cancellation', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));

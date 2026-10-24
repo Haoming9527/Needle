@@ -17,6 +17,8 @@ export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: 
   const dialog = useRef<HTMLDialogElement>(null);
   const [variant, setVariant] = useState(initialVariant ?? (offer.variants.length === 1 ? offer.variants[0] : ''));
   const [confirmationId] = useState(() => crypto.randomUUID());
+  const [operationId] = useState(() => crypto.randomUUID());
+  const [attempted, setAttempted] = useState(false);
   const inFlight = useRef(false);
   const controller = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
@@ -32,12 +34,12 @@ export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: 
 
   async function confirm() {
     if (inFlight.current || (offer.variants.length > 0 && !variant)) return;
-    inFlight.current = true; setBusy(true); setError('');
+    inFlight.current = true; setBusy(true); setError(''); setAttempted(true);
     const abort = new AbortController(); controller.current = abort;
     const timeout = window.setTimeout(() => abort.abort(), 45000);
     try {
       if (isCart) {
-        await apiRequest('/cart', { sessionId, offerId: offer.id, variant: variant || undefined, quantity }, abort.signal);
+        await apiRequest('/cart', { sessionId, offerId: offer.id, variant: variant || undefined, quantity, operationId }, abort.signal);
         onComplete(); onClose();
       } else {
         const request: DemoOrderRequest = { sessionId, offerId: offer.id, variant: variant || undefined, quantity, confirmationId, confirmed: true, ...(cartItemId ? { cartItemId } : {}) };
@@ -58,7 +60,7 @@ export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: 
       <button className="primary-button full-width" onClick={onClose}>Done</button>
     </div> : <>
       <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} fallbackSrc={fallbackSrc} alt={offer.title} /><div><h3>{offer.title}</h3><strong>{formatMoney(offer.price == null ? null : offer.price * quantity, offer.currency)}</strong>{quantity > 1 && <p>{quantity} × {formatMoney(offer.price, offer.currency)}</p>}</div></div>
-      {offer.variants.length > 0 && <label className="field-label">Variant<select value={variant} disabled={!!cartItemId || busy} onChange={event => setVariant(event.target.value)}><option value="" disabled>Choose a variant</option>{offer.variants.map(option => <option key={option} value={option}>{option}</option>)}</select></label>}
+      {offer.variants.length > 0 && <label className="field-label">Variant<select value={variant} disabled={!!cartItemId || busy || attempted} onChange={event => setVariant(event.target.value)}><option value="" disabled>Choose a variant</option>{offer.variants.map(option => <option key={option} value={option}>{option}</option>)}</select></label>}
       {!isCart && <dl className="checkout-facts"><div><dt>Source</dt><dd>{source.label}</dd></div><div><dt>Shipping</dt><dd>{offer.shipping ?? 'Unknown'}</dd></div><div><dt>Availability</dt><dd>{offer.availability ?? 'Unknown'}</dd></div><div><dt>Returns</dt><dd>{offer.returns ?? 'Unknown'}</dd></div></dl>}
       {source.url && <a className="source-link" href={source.url} target="_blank" rel="noreferrer">View product <ExternalLink size={13} /></a>}
       {error && <p className="inline-error" role="alert">{error}</p>}

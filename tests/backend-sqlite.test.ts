@@ -48,6 +48,36 @@ describe('SQLite catalog, cart, and purchase history', () => {
     await request(server).post('/cart').send(selection).expect(200).expect(res => expect(res.body.items[0].quantity).toBe(4));
     await request(server).post(`/cart/${id}/remove`).send({}).expect(200).expect(res => expect(res.body.items).toEqual([]));
   });
+  it('adds a cart operation once across retries and rejects changed payloads', async () => {
+    const server = app(); const selection = await find(server);
+    const body = { ...selection, quantity: 2, operationId: 'cart-retry-123' };
+    const first = await request(server).post('/cart').send(body).expect(200);
+    const retry = await request(server).post('/cart').send(body).expect(200);
+    expect(retry.body.items).toEqual(first.body.items);
+    expect(retry.body.items[0].quantity).toBe(2);
+    await request(server).post('/cart').send({ ...body, quantity: 3 }).expect(409);
+    await request(server).post('/cart').send({ ...body, operationId: 'cart-new-action-456' }).expect(200)
+      .expect(res => expect(res.body.items[0].quantity).toBe(4));
+  });
+  it('persists cart retry guards across restart and does not restore cleared items', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'needle-cart-retry-')); folders.push(directory);
+    const databaseFile = join(directory, 'needle.sqlite');
+    const first = app({ databaseFile }); const selection = await find(first);
+    const body = { ...selection, operationId: 'cart-persisted-123' };
+    await request(first).post('/cart').send(body).expect(200);
+    const second = app({ databaseFile });
+    await request(second).post('/cart').send(body).expect(200).expect(res => expect(res.body.items[0].quantity).toBe(1));
+    await request(second).post('/cart/clear').send({}).expect(200);
+    await request(second).post('/cart').send(body).expect(200).expect(res => expect(res.body.items).toEqual([]));
+    await request(second).post('/cart').send({ ...body, operationId: 'cart-after-clear-456' }).expect(200)
+      .expect(res => expect(res.body.items[0].quantity).toBe(1));
+  });
+  it('does not reserve a cart retry identifier when validation fails', async () => {
+    const server = app(); const selection = await find(server);
+    const body = { ...selection, operationId: 'cart-validation-123' };
+    await request(server).post('/cart').send({ ...body, variant: 'Invalid' }).expect(422);
+    await request(server).post('/cart').send(body).expect(200).expect(res => expect(res.body.items[0].quantity).toBe(1));
+  });
   it('atomically purchases a cart snapshot once and retains its quantity in history', async () => {
     const server = app(); const selection = await find(server);
     const added = await request(server).post('/cart').send({ ...selection, quantity: 2 }).expect(200);
