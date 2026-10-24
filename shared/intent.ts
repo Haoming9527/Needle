@@ -33,3 +33,10 @@ export interface IntentHypothesis {
 }
 export interface IntentState { consent: boolean; observations: IntentObservation[]; hypotheses: IntentHypothesis[] }
 export interface IntentFeedback { action: 'confirm' | 'dismiss' | 'correct'; correction?: 'home-meal-prep' | 'work-calls'; constraints?: string }
+
+/** Binds a suggestion to the currently reviewed need and its supporting observations. */
+export function intentSuggestionKey(hypothesis: IntentHypothesis): string {
+  return JSON.stringify([hypothesis.id, hypothesis.status, hypothesis.interest,
+    hypothesis.recommendationKey, hypothesis.constraints ?? '',
+    hypothesis.connection.observations.map(observation => observation.observationId)]);
+}

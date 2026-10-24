@@ -17,7 +17,7 @@ import { createIntentRouter } from './intent-routes.js';
 import { CommerceStore } from './commerce.js';
 import { createCommerceRouter } from './commerce-routes.js';
 import { contextTags } from '../shared/context.js';
-import { intentTags } from '../shared/intent.js';
+import { intentTags, intentSuggestionKey, type RecommendationKey } from '../shared/intent.js';
 
 const preferenceSchema = z.object({ budget: z.number().finite().nonnegative().max(1_000_000_000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional() }).strict();
 const imageDataSchema = z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/);
@@ -167,6 +167,36 @@ export function createApp(options: AppOptions = {}) {
         return { sessionId: randomUUID(), mode, interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' } satisfies SearchResponse;
       });
       database.saveSession({ selection: body.selection, interpretation: result.interpretation, preferences, result });
+      res.json(result);
+    } catch (error) { next(error); }
+  });
+
+  // Context-led suggestions require a reviewed need. Manual product search remains independent.
+  app.post('/intent/hypotheses/:id/recommendation', async (req, res, next) => {
+    try {
+      const { contextKey } = z.object({ contextKey: z.string().min(1).max(2000) }).strict().parse(req.body);
+      const current = () => {
+        const state = intent.getState();
+        if (!state.consent) throw new ApiError(409, 'INTENT_PAUSED', 'Resume context memory before showing a suggestion.');
+        const hypothesis = state.hypotheses.find(item => item.id === req.params.id);
+        if (!hypothesis || hypothesis.status !== 'active' || hypothesis.interest !== 'confirmed') throw new ApiError(409, 'INTENT_CONFIRMATION_REQUIRED', 'Check the possible connection before showing a product.');
+        if (intentSuggestionKey(hypothesis) !== contextKey) throw new ApiError(409, 'INTENT_CONTEXT_CHANGED', 'The context changed. Review the current connection first.');
+        return hypothesis;
+      };
+      const hypothesis = current();
+      const queries: Record<RecommendationKey, string> = {
+        'portable-lunch': 'portable lunch container', 'home-meal-prep': 'food storage container',
+        recording: 'microphone', 'work-calls': 'headset for work calls',
+      };
+      const selection = { text: `${queries[hypothesis.recommendationKey]}${hypothesis.constraints ? `; ${hypothesis.constraints}` : ''}`, pageTitle: 'Needle confirmed context' };
+      const preferences = budgetFromInstruction(selection.text, {});
+      const result = await bounded(req, res, async signal => {
+        const interpretation = await providers.sample.identify(selection, signal);
+        const search = await searchWithFallback('sample', interpretation, preferences, signal);
+        return { sessionId: randomUUID(), mode: 'sample', interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' } satisfies SearchResponse;
+      });
+      current(); // A correction, dismissal, removal or pause during search invalidates the result.
+      database.saveSession({ selection, interpretation: result.interpretation, preferences, result });
       res.json(result);
     } catch (error) { next(error); }
   });
