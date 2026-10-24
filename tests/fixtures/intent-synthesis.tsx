@@ -15,6 +15,7 @@ let revision = 1;
 let aiCalls = 0;
 let productSearches = 0;
 let savedConstraints = '';
+let lastCorrection = '';
 const signal = () => window.dispatchEvent(new Event('fixture-counts'));
 const observations: IntentObservation[] = [
   { id: '20000000-0000-4000-8000-000000000001', action: 'revisit', sourceOrigin: 'https://recipes.example', sourceTitle: 'Weekday meal preparation', summary: 'Revisited a guide to preparing lunches ahead of time.', tags: ['meal-prep'], provenance: 'demo_fixture', entityKey: 'fixture-recipe', createdAt: '2026-10-25T00:00:00Z' },
@@ -49,6 +50,7 @@ globalThis.fetch = async (input, init) => {
   if (path === '/intent' && (!init?.method || init.method === 'GET')) return json();
   if (path === '/intent/synthesize') {
     if (!state.consent || body.contextKey !== state.synthesis!.contextKey || state.observations.length < 2) return failure('Scripted stale context or insufficient observations.');
+    lastCorrection = body.correction?.trim() ?? '';
     aiCalls++; signal();
     const key = state.synthesis!.contextKey;
     if (body.correction) { savedConstraints = state.hypotheses[0]?.constraints ?? savedConstraints; state.hypotheses = []; state.synthesis!.status = 'stale'; }
@@ -85,7 +87,13 @@ function Fixture() {
   const [counts, setCounts] = useState({ aiCalls, productSearches });
   const [opened, setOpened] = useState('');
   useEffect(() => { const update = () => setCounts({ aiCalls, productSearches }); window.addEventListener('fixture-counts', update); return () => window.removeEventListener('fixture-counts', update); }, []);
-  function load(next: Scenario) { scenario = next; revision++; aiCalls = 0; productSearches = 0; savedConstraints = ''; failNext = false; state = seed(); setOpened(''); signal(); setKey(value => value + 1); }
-  return <><header style={{ position: 'sticky', top: 0, zIndex: 20, background: '#fff1c9', borderBottom: '1px solid #d0b66e', padding: '12px 18px', font: '12px system-ui', lineHeight: 1.7 }}><strong>Development fixture · scripted AI responses, no model request</strong><div>All observations, reasoning and products below are test data. This is not live-model evidence.</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{(['supported', 'abstain', 'error'] as const).map(value => <button key={value} onClick={() => load(value)} style={{ padding: '7px 10px' }}>Load {value} scenario</button>)}<button onClick={() => { failNext = true; signal(); }} style={{ padding: '7px 10px' }}>Fail next scripted AI call</button><button onClick={() => window.dispatchEvent(new Event('focus'))} style={{ padding: '7px 10px' }}>Simulate focus refresh</button></div></header><div className="needle-app preview-app"><main><IntentWorkspace key={key} onOpenResult={result => setOpened(`View options received existing ${result.offers[0]?.title}; no additional search.`)} />{opened && <p role="status" style={{ padding: 12 }}>{opened}</p>}</main></div><footer style={{ position: 'sticky', bottom: 0, background: '#fff1c9', padding: 12, borderTop: '1px solid #d0b66e', font: '12px system-ui' }} aria-live="polite">Scripted AI calls: {counts.aiCalls} · Product searches: {counts.productSearches} · No external provider calls{failNext ? ' · Next scripted AI call will fail' : ''}</footer></>;
+  function load(next: Scenario) { scenario = next; revision++; aiCalls = 0; productSearches = 0; savedConstraints = ''; lastCorrection = ''; failNext = false; state = seed(); setOpened(''); signal(); setKey(value => value + 1); }
+  function completeElsewhere() {
+    const result = output(lastCorrection || undefined);
+    state.hypotheses = [hypothesis(result, lastCorrection || undefined)];
+    state.synthesis = { ...state.synthesis!, status: 'ready', result, correction: lastCorrection || undefined, generatedAt: new Date().toISOString() };
+    window.dispatchEvent(new Event('focus'));
+  }
+  return <><header style={{ position: 'sticky', top: 0, zIndex: 20, background: '#fff1c9', borderBottom: '1px solid #d0b66e', padding: '12px 18px', font: '12px system-ui', lineHeight: 1.7 }}><strong>Development fixture · scripted AI responses, no model request</strong><div>All observations, reasoning and products below are test data. This is not live-model evidence.</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{(['supported', 'abstain', 'error'] as const).map(value => <button key={value} onClick={() => load(value)} style={{ padding: '7px 10px' }}>Load {value} scenario</button>)}<button onClick={() => { failNext = true; signal(); }} style={{ padding: '7px 10px' }}>Fail next scripted AI call</button><button onClick={completeElsewhere} style={{ padding: '7px 10px' }}>Complete assessment in another tab</button><button onClick={() => window.dispatchEvent(new Event('focus'))} style={{ padding: '7px 10px' }}>Simulate focus refresh</button></div></header><div className="needle-app preview-app"><main><IntentWorkspace key={key} onOpenResult={result => setOpened(`View options received existing ${result.offers[0]?.title}; no additional search.`)} />{opened && <p role="status" style={{ padding: 12 }}>{opened}</p>}</main></div><footer style={{ position: 'sticky', bottom: 0, background: '#fff1c9', padding: 12, borderTop: '1px solid #d0b66e', font: '12px system-ui' }} aria-live="polite">Scripted AI calls: {counts.aiCalls} · Product searches: {counts.productSearches} · No external provider calls{failNext ? ' · Next scripted AI call will fail' : ''}</footer></>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);

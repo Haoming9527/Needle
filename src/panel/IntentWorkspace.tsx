@@ -50,6 +50,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   const [showRules, setShowRules] = useState(false);
   const synthesisRequest = useRef<AbortController | null>(null);
   const currentContext = useRef('');
+  const attemptedSynthesis = useRef<{ contextKey: string; correction: string } | null>(null);
   const stateRevision = useRef(0);
   const busy = mutationBusy || synthBusy;
   const [error, setError] = useState('');
@@ -77,11 +78,24 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   const suggestionKey = active ? intentSuggestionKey(active) : '';
   const connection = (active as (IntentHypothesis & { connection?: Connection }) | undefined)?.connection;
   const observed = connection?.observations ?? (active?.evidenceIds ?? []).flatMap(id => (state?.observations ?? []).filter(item => item.id === id).map(item => ({ ...item, observationId: item.id })));
+  const adoptState = useCallback((result: IntentState) => {
+    const completed = result.synthesis;
+    const attempt = attemptedSynthesis.current;
+    // A fresh completed assessment can recover a lost response. A failed correction
+    // must not re-expose the older assessment it was intended to replace.
+    const olderThanCorrection = attempt?.contextKey === completed?.contextKey
+      && !!attempt?.correction && (completed?.correction?.trim() ?? '') !== attempt.correction;
+    if (result.consent && (completed?.status === 'ready' || completed?.status === 'abstained') && !olderThanCorrection) {
+      setSynthError('');
+      attemptedSynthesis.current = null;
+    }
+    setState(result);
+  }, []);
   const refresh = useCallback(async () => {
     const revision = stateRevision.current;
-    try { const result = await apiRequest<IntentState>('/intent', undefined, AbortSignal.timeout(8000)); if (mounted.current && revision === stateRevision.current) { if (synthesisRequest.current && (result.synthesis?.contextKey !== currentContext.current || !result.consent)) { synthesisRequest.current.abort(); synthesisRequest.current = null; setSynthBusy(false); setSynthError('Context changed. Review the observations before connecting them again.'); } setState(result); setError(''); } }
+    try { const result = await apiRequest<IntentState>('/intent', undefined, AbortSignal.timeout(8000)); if (mounted.current && revision === stateRevision.current) { if (synthesisRequest.current && (result.synthesis?.contextKey !== currentContext.current || !result.consent)) { synthesisRequest.current.abort(); synthesisRequest.current = null; setSynthBusy(false); setSynthError('Context changed. Review the observations before connecting them again.'); } adoptState(result); setError(''); } }
     catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : 'Context could not be loaded.'); }
-  }, []);
+  }, [adoptState]);
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; request.current?.abort(); synthesisRequest.current?.abort(); }; }, [refresh]);
   useEffect(() => { const onFocus = () => { if (!mutation.current) void refresh(); }; window.addEventListener('focus', onFocus); return () => window.removeEventListener('focus', onFocus); }, [refresh]);
   // A change to evidence, consent or feedback invalidates the product and its in-flight response.
@@ -104,6 +118,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   async function synthesize(userCorrection?: string) {
     if (mutation.current || synthesisRequest.current || !state?.consent || !synthesis?.available || !eligible) return;
     const contextKey = synthesis.contextKey; stateRevision.current++;
+    attemptedSynthesis.current = { contextKey, correction: userCorrection?.trim() ?? '' };
     const controller = new AbortController(); synthesisRequest.current = controller;
     setSynthBusy(true); setSynthError(''); setShowRules(false); invalidateProduct();
     const timeout = setTimeout(() => controller.abort(), 45000);
@@ -111,7 +126,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
       const result = await apiRequest<IntentState>('/intent/synthesize', { contextKey, ...(userCorrection?.trim() ? { correction: userCorrection.trim() } : {}) }, controller.signal);
       if (!mounted.current || controller.signal.aborted || synthesisRequest.current !== controller || currentContext.current !== contextKey) return;
       if (result.synthesis?.contextKey !== contextKey) { setSynthError('The observations changed during synthesis. Refresh context and try again.'); return; }
-      stateRevision.current++; setState(result); setCorrection(''); onChanged?.();
+      stateRevision.current++; adoptState(result); setCorrection(''); onChanged?.();
     } catch (problem) { if (mounted.current && synthesisRequest.current === controller) { setSynthError(controller.signal.aborted ? 'AI synthesis timed out. Your observations are preserved; retry when ready.' : problem instanceof Error ? problem.message : 'AI synthesis could not finish.'); await refresh(); } }
     finally { clearTimeout(timeout); if (synthesisRequest.current === controller) { synthesisRequest.current = null; if (mounted.current) setSynthBusy(false); } }
   }
@@ -119,7 +134,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   async function mutate(path: string, body: unknown) {
     if (mutation.current) return;
     mutation.current = true; stateRevision.current++; setBusy(true); setError(''); invalidateSynthesis(); invalidateProduct();
-    try { const result = await apiRequest<IntentState>(path, body, AbortSignal.timeout(8000)); if (mounted.current) { setState(result); setRetry(value => value + 1); onChanged?.(); } }
+    try { const result = await apiRequest<IntentState>(path, body, AbortSignal.timeout(8000)); if (mounted.current) { adoptState(result); setRetry(value => value + 1); onChanged?.(); } }
     catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : 'Your change could not be saved.'); }
     finally { mutation.current = false; if (mounted.current) setBusy(false); }
   }
@@ -129,7 +144,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     try {
       let result: IntentState | null = null;
       for (const event of events) result = await apiRequest<IntentState>('/intent/observations', { ...event, id: crypto.randomUUID() }, AbortSignal.timeout(8000));
-      if (mounted.current && result) { setState(result); setRetry(value => value + 1); onChanged?.(); }
+      if (mounted.current && result) { adoptState(result); setRetry(value => value + 1); onChanged?.(); }
     } catch (problem) { if (mounted.current) { setError(problem instanceof Error ? problem.message : 'The replay could not finish. Retry to continue.'); await refresh(); } }
     finally { mutation.current = false; if (mounted.current) setBusy(false); }
   }
