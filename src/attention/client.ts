@@ -53,7 +53,7 @@ export function mountAttentionCapture({ onStatus }: { onStatus: (status: Attenti
           : 'Ready. Pause your cursor on the outlined reading region for two seconds.');
       },
       onObservation: measurement => {
-        if (!enabled || pending || sending || stopped) return;
+        if (!enabled || pending || sending || stopped || document.visibilityState !== 'visible') return;
         pending = {
           id: crypto.randomUUID(), sessionId, pageInstanceId, sourceId: source.id, targetId: source.targetId,
           action: measurement.action,
@@ -69,6 +69,7 @@ export function mountAttentionCapture({ onStatus }: { onStatus: (status: Attenti
     const wasEnabled = enabled;
     enabled = state.consent && state.attentionConsent;
     if (!enabled) {
+      if (wasEnabled) revision++;
       stop(); pending = undefined; sendRequest?.abort();
       status('paused', 'Cursor attention is paused. Enable it to measure this demo reading region.');
     } else if (!wasEnabled || !stopCollector) {
@@ -86,7 +87,7 @@ export function mountAttentionCapture({ onStatus }: { onStatus: (status: Attenti
       if (!stopped && !controller.signal.aborted && current === revision) applyState(state);
     } catch (error) {
       if (stopped || controller.signal.aborted) return;
-      enabled = false; stop();
+      revision++; enabled = false; stop(); sendRequest?.abort();
       status('error', error instanceof Error ? error.message : 'Unable to check cursor-attention consent.');
     }
   }
