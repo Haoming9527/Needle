@@ -1,0 +1,9 @@
+# Verified local head-training/runtime environment (Apple M2, Python 3.12).
+# Install in an isolated virtual environment; no API keys are required.
+torch==2.14.1
+transformers==5.20.2
+scikit-learn==1.9.1
+numpy==2.5.4
+safetensors==0.8.0
+sentencepiece>=0.2.0,<0.3
+huggingface-hub==2.3.0
