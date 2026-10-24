@@ -2,15 +2,18 @@
 
 This demo starts with everyday activity, before a shopping request. The cross-site replay is explicitly synthetic. It does not claim passive cursor telemetry has been implemented.
 
-1. Open **Discover** and enable local context memory. Explain that saving context is optional and can be paused or reset.
-2. Replay the recipe source. The labelled fixture adds meal-prep attention and revisit observations. At this point, Needle should not infer lunch on the move.
-3. Replay cycling-to-work. The second source adds complementary commuting context. Show both source origins in the evidence list.
-4. Needle tentatively asks whether carrying lunch to work would be useful. Interest confidence and purchase readiness are separate; weak browsing evidence does not imply a ready buyer.
-5. Expand “Review evidence & scoring” to show heuristic arithmetic and evidence provenance. Scores are not purchase probabilities.
-6. Confirm the need with an optional constraint, then discover a portable lunch container. Product search only starts after confirmation.
-7. Alternatively select “I eat at home.” Needle changes the need to food storage at home and searches food storage containers. This is a different product objective, not merely reworded copy.
-8. Continue into the separate collection/wishlist and group-buy workspace. Seeded group participants, illustrative prices and simulated checkout must remain clearly labelled.
-9. Remove an evidence item, dismiss a suggestion, or reset memory to demonstrate control. Replaying a source twice must not duplicate its events.
+## Primary workflow: low-intent coordination
+
+The main demo ends after one relevant suggestion. Collections, group buying and the seller workspace are later extensions, not prerequisites for this story.
+
+1. Open **Discover** and enable local context memory. The demo explicitly labels its article previews and attention signals as simulated.
+2. Read **Three lunches you can prepare on Sunday**. Continue to the next article to add the disclosed recipe attention fixture. No product search occurs and no need is inferred from this one source.
+3. Read **Making your weekday bike commute easier**. It is an everyday commuting habit, not a shopping query. Continue to see what Needle connected.
+4. Show the reasoning: **what happened → a possible connection → what remains uncertain**. The source evidence only proves attention to content. It does not establish actual habits or willingness to buy. Ask whether bringing prepared food on a commute would be useful.
+5. **Yes, that fits** confirms the useful need, optionally with a budget. Only then does the server permit a context-led product suggestion. One suitable catalog result appears inline with a short explanation. Purchase readiness remains Exploring.
+6. **I eat at home** changes the objective to home food storage, retains the constraint, clears the old result, and requests a different product set. **Dismiss** produces no product recommendation.
+7. Expand **Review context** to inspect the score and provenance, pause memory, remove a clue, or reset. Removing supporting evidence invalidates its confirmation. New evidence needs a new check with the user.
+8. **View options** is an optional handoff to the existing Find page using the already-returned result. It does not repeat discovery.
 
 ## Boundaries
 
@@ -32,6 +35,8 @@ The key demo reveal now reads visually as two source cards → one tentative que
 
 ## Implementation and integration
 
+- `IntentHypothesis.connection` keeps observed actions, the proposed need, uncertainty and product rationale separate. Only the complementary supporting sources appear in this connection; unrelated and later commerce signals cannot masquerade as its cause.
+- `POST /intent/hypotheses/:id/recommendation` requires memory on, an active confirmed need and the matching context key. It rechecks the context after search, so correction/dismissal/removal/pause cannot return a stale product. Manual `/discover` remains independent.
 - `IntentStore` shares the existing SQLite connection. Durable action history preserves stable observations, deduplicates related actions, and retracts cart/group interest back to earlier readiness. Memory is opt-in. Removal works while recording is paused.
 - `CommerceStore` stores saved inspiration independently of one-hour discovery sessions. Lifecycle IDs make retry safe while permitting deletion and re-save. Named collections reference those durable items without adding evidence points.
 - Group campaigns have one local participant and two clearly synthetic participants. Repeated joins and campaign creation do not inflate counts. Price/currency eligibility, withdrawal, and expiry are checked server-side. Threshold crossing has no checkout side effect. Current scoring retracts on withdrawal; automatic removal of expired pledge evidence remains a follow-up beyond the short demo.
@@ -47,13 +52,13 @@ The latest integration also preserves `219a92f`: generated demo photos, cursor-p
 
 Logan runs separately on port 4320. Its local JSON events do not yet feed the SQLite intent, collections, conditional pledges or cart. Its explicit-search adapter calls Needle's product discovery, but candidate relevance is distinct from purchase readiness. A future bridge needs stable product IDs and an explicit sharing boundary before sending browsing evidence to seller views. For this demo, present Logan as a separate seller-side concept, not an already connected merchant integration.
 
-## Seven-minute presentation
+## Focused three-minute presentation
 
-- 0:00–0:40: Most commerce starts with a query. Needle explores the moment before that.
-- 0:40–1:30: Opt in and replay recipe browsing. One clue does not produce a recommendation.
-- 1:30–2:45: Replay commuting. Show the two sources and tentative question; buying readiness remains Exploring.
-- 2:45–3:30: Confirm with a budget, or demonstrate “I eat at home” changing the product objective.
-- 3:30–4:30: Discover a suitable item, wishlist it, and organise it into a collection.
-- 4:30–5:30: Express conditional group interest; show you plus two simulated peers, then withdraw.
-- 5:30–6:20: Independently choose cart and a clearly simulated checkout.
-- 6:20–7:00: Explain the bounded heuristic, user control, and the path toward consented real-world signals and real merchant integrations.
+- 0:00–0:25: “Shopping agents usually begin with a request. What happens before someone knows what to ask for?”
+- 0:25–1:00: Read the recipe preview. Show that one browsing habit does not trigger a recommendation.
+- 1:00–1:30: Read the commuting preview. These are two separate everyday activities, neither a product search.
+- 1:30–2:15: Show the connection and its uncertainty. This is the key moment: Needle proposes a useful need and asks the user to check it.
+- 2:15–2:45: Confirm with a budget and show one relevant product with its reason. Alternatively correct to “I eat at home” and show the changed suggestion.
+- 2:45–3:00: Explain that ordinary recommenders also use behavior. The demo's distinction is permissioned cross-site context, an inspectable connection and user correction before commerce—not a claim that cursor data alone proves intent.
+
+Only extend into collections or buying if asked. Keep the first walkthrough centered on a useful connection, not conversion.

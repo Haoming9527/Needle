@@ -7,7 +7,7 @@ A local Chrome extension with a compact right-click shopping popup, a Vercel AI 
 
 ## Connected discovery demo (v0.7)
 
-Open **Discover** to try the new recipe + cycling-to-work scenario. Two explicitly labelled browsing replays produce a tentative need before any shopping request. Confirm or correct it to compare portable lunch containers or home food storage. The rule-based context score and product search are separate; no background cursor tracking is represented.
+Open **Discover** for the primary low-intent workflow: browse a recipe article, then a cycling-to-work article. Both previews and attention signals are explicitly simulated. Needle explains the observed clues, possible connection and uncertainty, then asks you to confirm or correct the need. Only after your feedback does one relevant product appear inline. The rule-based context score and product search are separate; no background cursor tracking is represented.
 
 **Saved** supports durable inspiration, product wishlists, named collections, and conditional group-buy simulations. Each group contains two labelled synthetic participants; joining expresses a price condition and never creates an order. **Find**, **Cart**, and **History** retain the existing flow, with visibly simulated checkout.
 

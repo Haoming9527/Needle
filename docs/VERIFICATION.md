@@ -2,6 +2,16 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## v0.7 low-intent workflow refinement
+
+- Replaced dashboard replay buttons with recipe and commuting article previews, then an explicit observed/inferred/uncertain connection and a confirmation question. Signals remain labelled simulation inputs.
+- One product appears inline only after confirmation/correction; no cart or group action is needed. View options reuses the returned search response. The dedicated suggestion endpoint validates consent, confirmation and context before and after search.
+- Confirmation is bound to its exact supporting observation pair. Changed or re-added support, including legacy feedback without a binding, requires a new confirmation. Removing supporting context clears the inline product.
+- **186 tests in 20 files**, TypeScript, production build and extension package checks passed. New tests prove zero provider calls before confirmation or for stale keys, and rejection of delayed results after correction, dismissal, removal or pause.
+- Browser walkthrough: recipe alone shows no suggestion; commuting yields a tentative connection; confirming with a KRW 30,000 budget shows a KRW 24,000 portable lunch container inline. Correcting to home meals replaces it with a KRW 21,000 storage set and keeps the budget. Removing/re-adding the recipe clears the product and requires confirmation again.
+- Desktop and 390px visual checks passed with no horizontal overflow. Screenshots: `.local/screenshots/low-intent-browsing.png`, `low-intent-connection.png`, and `low-intent-mobile.png`. The preview remains at the tentative question.
+- This pass adds no passive telemetry, provider authentication checks, group-buy changes or seller bridge. The primary rehearsal is documented in `CONNECTED_DEMO.md`.
+
 ## v0.7 connected discovery integration
 
 - Integrated team changes through `219a92f`: retailer-neutral search, image fallbacks, editorial photos, crop annotation, clarification, and Logan. Explicit Save/Find choice is preserved.
