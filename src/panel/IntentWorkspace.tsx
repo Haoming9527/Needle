@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IntentFeedback, IntentHypothesis, IntentObservationInput, IntentState, RecommendationKey } from '../../shared/intent';
 import { apiRequest } from './api';
 import { intentSuggestionKey } from '../../shared/intent';
-import type { IntentSynthesisState } from '../../shared/synthesis';
 import type { IntentCaptureMetadata } from '../../shared/attention';
 import type { SearchResponse } from '../../shared/types';
 import { ProductImage, formatMoney } from './ui';
@@ -32,8 +31,6 @@ type Connection = {
   why?: string;
   evidenceReasons?: { observationId: string; reason: string }[];
 };
-type ModelHypothesis = IntentHypothesis & { origin?: { kind: 'model'; model: string; promptVersion: string; evidenceFingerprint: string; productQuery: string } };
-type WorkspaceState = Omit<IntentState, 'hypotheses'> & { synthesis?: IntentSynthesisState; hypotheses: ModelHypothesis[] };
 const readinessNames = { exploring: 'Exploring', considering: 'Considering', conditional: 'Conditional', ready_to_review: 'Ready to review' };
 
 function ArticlePreview({ kind, compact = false }: { kind: 'recipe' | 'commute'; compact?: boolean }) {
@@ -45,7 +42,7 @@ function ArticlePreview({ kind, compact = false }: { kind: 'recipe' | 'commute';
 }
 
 export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDiscover?: (query: string) => void; onOpenResult?: (result: SearchResponse) => void; onChanged?: () => void }) {
-  const [state, setState] = useState<WorkspaceState | null>(null);
+  const [state, setState] = useState<IntentState | null>(null);
   const [mutationBusy, setBusy] = useState(false);
   const [synthBusy, setSynthBusy] = useState(false);
   const [synthError, setSynthError] = useState('');
@@ -66,6 +63,8 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   const mounted = useRef(true);
   const synthesis = state?.synthesis;
   currentContext.current = synthesis?.contextKey ?? '';
+  const synthesisCurrent = synthesis?.status === 'ready' || synthesis?.status === 'abstained';
+  const modelDismissed = state?.hypotheses.some(item => item.origin?.kind === 'model' && item.status === 'dismissed');
   const eligible = new Set(synthesis?.observations.map(item => item.sourceKey) ?? []).size >= 2;
   const modelActive = !synthBusy && !synthError && synthesis?.status === 'ready' ? state?.hypotheses.find(item => item.status === 'active' && item.origin?.kind === 'model') : undefined;
   const active = showRules ? state?.hypotheses.find(item => item.status === 'active' && item.origin?.kind !== 'model') : modelActive;
@@ -80,7 +79,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   const observed = connection?.observations ?? (active?.evidenceIds ?? []).flatMap(id => (state?.observations ?? []).filter(item => item.id === id).map(item => ({ ...item, observationId: item.id })));
   const refresh = useCallback(async () => {
     const revision = stateRevision.current;
-    try { const result = await apiRequest<WorkspaceState>('/intent', undefined, AbortSignal.timeout(8000)); if (mounted.current && revision === stateRevision.current) { if (synthesisRequest.current && (result.synthesis?.contextKey !== currentContext.current || !result.consent)) { synthesisRequest.current.abort(); synthesisRequest.current = null; setSynthBusy(false); setSynthError('Context changed. Review the observations before connecting them again.'); } setState(result); setError(''); } }
+    try { const result = await apiRequest<IntentState>('/intent', undefined, AbortSignal.timeout(8000)); if (mounted.current && revision === stateRevision.current) { if (synthesisRequest.current && (result.synthesis?.contextKey !== currentContext.current || !result.consent)) { synthesisRequest.current.abort(); synthesisRequest.current = null; setSynthBusy(false); setSynthError('Context changed. Review the observations before connecting them again.'); } setState(result); setError(''); } }
     catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : 'Context could not be loaded.'); }
   }, []);
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; request.current?.abort(); synthesisRequest.current?.abort(); }; }, [refresh]);
@@ -109,7 +108,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     setSynthBusy(true); setSynthError(''); setShowRules(false); invalidateProduct();
     const timeout = setTimeout(() => controller.abort(), 45000);
     try {
-      const result = await apiRequest<WorkspaceState>('/intent/synthesize', { contextKey, ...(userCorrection?.trim() ? { correction: userCorrection.trim() } : {}) }, controller.signal);
+      const result = await apiRequest<IntentState>('/intent/synthesize', { contextKey, ...(userCorrection?.trim() ? { correction: userCorrection.trim() } : {}) }, controller.signal);
       if (!mounted.current || controller.signal.aborted || synthesisRequest.current !== controller || currentContext.current !== contextKey) return;
       if (result.synthesis?.contextKey !== contextKey) { setSynthError('The observations changed during synthesis. Refresh context and try again.'); return; }
       stateRevision.current++; setState(result); setCorrection(''); onChanged?.();
@@ -120,7 +119,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   async function mutate(path: string, body: unknown) {
     if (mutation.current) return;
     mutation.current = true; stateRevision.current++; setBusy(true); setError(''); invalidateSynthesis(); invalidateProduct();
-    try { const result = await apiRequest<WorkspaceState>(path, body, AbortSignal.timeout(8000)); if (mounted.current) { setState(result); setRetry(value => value + 1); onChanged?.(); } }
+    try { const result = await apiRequest<IntentState>(path, body, AbortSignal.timeout(8000)); if (mounted.current) { setState(result); setRetry(value => value + 1); onChanged?.(); } }
     catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : 'Your change could not be saved.'); }
     finally { mutation.current = false; if (mounted.current) setBusy(false); }
   }
@@ -128,8 +127,8 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     if (mutation.current || !state?.consent) return;
     mutation.current = true; stateRevision.current++; setBusy(true); setError(''); invalidateSynthesis(); invalidateProduct();
     try {
-      let result: WorkspaceState | null = null;
-      for (const event of events) result = await apiRequest<WorkspaceState>('/intent/observations', { ...event, id: crypto.randomUUID() }, AbortSignal.timeout(8000));
+      let result: IntentState | null = null;
+      for (const event of events) result = await apiRequest<IntentState>('/intent/observations', { ...event, id: crypto.randomUUID() }, AbortSignal.timeout(8000));
       if (mounted.current && result) { setState(result); setRetry(value => value + 1); onChanged?.(); }
     } catch (problem) { if (mounted.current) { setError(problem instanceof Error ? problem.message : 'The replay could not finish. Retry to continue.'); await refresh(); } }
     finally { mutation.current = false; if (mounted.current) setBusy(false); }
@@ -146,7 +145,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     {!state && !error && <p className="intent-empty" role="status">Loading your context…</p>}
     {state && !state.consent && <div className="intent-consent"><h2>{state.observations.length ? 'Context memory is paused' : 'Review your browsing context'}</h2><p>Local memory stores the observations you choose to enable. Cursor attention has a separate opt-in on the reading pages. You can review, remove or reset the context.</p><button className="primary-button" disabled={busy} onClick={() => void mutate('/intent/consent', { enabled: true })}>{state.observations.length ? 'Resume local memory' : 'Enable local memory'}</button></div>}
     <section className="measured-source-launch" aria-label="Read the controlled demo sources"><h2>Start with something ordinary.</h2><p>Open each reading page, enable cursor attention, and spend time with your pointer inside the marked content. Return here to see what was recorded.</p><div className="measured-source-links"><a href="http://127.0.0.1:5173/recipe-demo.html" target="_blank" rel="noreferrer"><span>01 · Meal preparation</span><strong>Three lunches for the week</strong><small>Prepared source · local demo page ↗</small></a><a href="http://127.0.0.1:5173/commute-demo.html" target="_blank" rel="noreferrer"><span>02 · Bicycle commuting</span><strong>A calmer ride to work</strong><small>Prepared source · local demo page ↗</small></a></div><div className="measured-source-status" aria-live="polite">{(['recipe-guide', 'commute-guide'] as const).map(sourceId => { const observation = state?.observations.find(item => item.capture?.sourceId === sourceId); return <div key={sourceId}><i className={observation ? 'recorded' : ''} aria-hidden="true"/><strong>{sourceId === 'recipe-guide' ? 'Meal preparation' : 'Bicycle commuting'}</strong><span>{observation?.capture ? `${(observation.capture.dwellMs / 1000).toFixed(1)}s in region · ${observation.action === 'revisit' ? 'revisit' : 'region dwell'}` : 'Waiting for region dwell'}</span></div>; })}</div><p className="browsing-footnote">Both pages run on the same local origin. The two prepared source identities are separate demo contexts, not independent real websites.</p><button className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh recorded context</button></section>
-    <section className="synthesis-control" aria-label="Connect saved observations with AI"><div className="intent-eyebrow">03 · Connect the context</div><h2>What might these moments have in common?</h2><p>Send the bounded saved summaries below to your configured AI provider. The model can suggest a tentative need or say there is no supported connection. It does not receive screenshots or your full browsing history.</p><details className="synthesis-inputs"><summary>Preview the exact observation inputs ({synthesis?.observations.length ?? 0})</summary>{synthesis?.observations.length ? <pre>{JSON.stringify(synthesis.observations, null, 2)}</pre> : <p>No model input is available yet.</p>}</details><button className="primary-button" disabled={busy || !state?.consent || !eligible || !synthesis?.available} onClick={() => void synthesize()}>{synthBusy ? 'Connecting the observations…' : 'Connect observations with AI'}</button>{synthBusy && <button className="text-button" onClick={() => { invalidateSynthesis(); setSynthError('AI synthesis cancelled. No new connection was accepted.'); }}>Cancel synthesis</button>}<p className="browsing-footnote">{!state?.consent ? 'Enable local memory before sending context.' : !synthesis?.available ? 'AI synthesis is unavailable. Configure a provider to use this action; the prepared rule demo remains available below.' : !eligible ? 'Collect observations from at least two distinct sources first.' : `Provider model: ${synthesis.model} · ${synthesis.promptVersion}`}</p>{synthBusy && <p role="status">Considering the saved evidence. No product search starts until you confirm a need.</p>}{synthError && <div className="intent-error" role="alert">{synthError}{correction.trim() && <div className="synthesis-correction"><label>Your correction is preserved<input value={correction} onChange={event => setCorrection(event.target.value)} maxLength={500} disabled={busy} /></label><button className="secondary-button" disabled={busy || !state?.consent || !synthesis?.available || !eligible || !correction.trim()} onClick={() => void synthesize(correction)}>Retry this correction</button></div>}</div>}{!synthBusy && !synthError && synthesis?.status === 'abstained' && <div className="synthesis-empty"><strong>No supported connection</strong><p>{synthesis.result?.uncertainty ?? 'The model could not establish a useful need from these observations.'}</p>{synthesis.result?.why && <p>{synthesis.result.why}</p>}</div>}{synthesis?.status === 'stale' && <p className="synthesis-empty">The saved context changed. Connect the current observations again to get a fresh hypothesis.</p>}<button className="text-button synthesis-fallback" aria-pressed={showRules} onClick={() => { invalidateProduct(); setShowRules(value => !value); }}>{showRules ? 'Hide prepared rule-based demo' : 'Show prepared rule-based demo'}</button></section>
+    <section className="synthesis-control" aria-label="Connect saved observations with AI"><div className="intent-eyebrow">03 · Connect the context</div><h2>What might these moments have in common?</h2><p>Send the bounded saved summaries below to your configured AI provider. The model can suggest a tentative need or say there is no supported connection. It does not receive screenshots or your full browsing history.</p><details className="synthesis-inputs"><summary>Review what AI will receive ({synthesis?.observations.length ?? 0} observations)</summary>{synthesis?.observations.length ? <ul className="intent-evidence">{synthesis.observations.map(item => <li key={item.id}><div className="intent-evidence-body"><strong>{item.sourceTitle}</strong><p>{item.summary}</p><small>Source: {item.sourceKey} · Action: {item.action.replaceAll('_', ' ')}</small><small>{item.provenance === 'demo_fixture' ? 'Prepared demo context' : 'Observed interaction context'}{item.measurement ? ` · ${(item.measurement.dwellMs / 1000).toFixed(1)}s in reading region · visit ${item.measurement.visitOrdinal}` : ''}</small><small>Topic hints: {item.tags.map(tag => tag.replaceAll('-', ' ')).join(', ') || 'none'}</small></div></li>)}</ul> : <p>No model input is available yet.</p>}</details><button className="primary-button" disabled={busy || synthesisCurrent || !state?.consent || !eligible || !synthesis?.available} onClick={() => void synthesize()}>{synthBusy ? 'Connecting the observations…' : synthesisCurrent ? 'Connection assessment up to date' : 'Connect observations with AI'}</button>{synthBusy && <button className="text-button" onClick={() => { invalidateSynthesis(); setSynthError('AI synthesis cancelled. No new connection was accepted.'); }}>Cancel synthesis</button>}<p className="browsing-footnote">{!state?.consent ? 'Enable local memory before sending context.' : !synthesis?.available ? 'AI synthesis is unavailable. Configure a provider to use this action; the prepared rule demo remains available below.' : !eligible ? 'Collect observations from at least two distinct sources first.' : `Provider model: ${synthesis.model}`}</p>{synthBusy && <p role="status">Considering the saved evidence. No product search starts until you confirm a need.</p>}{synthError && <div className="intent-error" role="alert">{synthError}{correction.trim() && <div className="synthesis-correction"><label>Your correction is preserved<input value={correction} onChange={event => setCorrection(event.target.value)} maxLength={500} disabled={busy} /></label><button className="secondary-button" disabled={busy || !state?.consent || !synthesis?.available || !eligible || !correction.trim()} onClick={() => void synthesize(correction)}>Retry this correction</button></div>}</div>}{!synthBusy && !synthError && synthesis?.status === 'abstained' && <div className="synthesis-empty"><strong>No supported connection</strong><p>{synthesis.result?.uncertainty ?? 'The model could not establish a useful need from these observations.'}</p>{synthesis.result?.why && <p>{synthesis.result.why}</p>}</div>}{synthesis?.status === 'stale' && <p className="synthesis-empty">The saved context changed. Connect the current observations again to get a fresh hypothesis.</p>}<button className="text-button synthesis-fallback" aria-pressed={showRules} onClick={() => { invalidateProduct(); setShowRules(value => !value); }}>{showRules ? 'Hide prepared rule-based demo' : 'Show prepared rule-based demo'}</button></section>
     <details className="synthetic-replay-fallback"><summary>Use a synthetic replay instead</summary><p>Fallback only: Continue adds fixture observations. It does not measure your cursor.</p>
     {state?.consent && (!hasReplayRecipe || !hasReplayCycling) && <div className="browsing-stage">
       <p className="browsing-step">{hasReplayRecipe ? '02 · Another everyday moment' : '01 · Something you were reading'}</p>
@@ -157,6 +156,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     </div>}
     {hasReplayRecipe && hasReplayCycling && <div className="browsing-completed-sources"><ArticlePreview kind="recipe" compact /><ArticlePreview kind="commute" compact /></div>}
     </details>
+    {!showRules && modelDismissed && !synthBusy && <div className="synthesis-empty" role="status"><strong>Suggestion dismissed</strong><p>No product search will run for this suggestion. Add new context or reset the demo to explore another connection.</p></div>}
     {showRules && state && hasCycling && !active && <div className="intent-connection"><p className="intent-kicker">{dismissed ? 'Your choice, respected' : 'No connection yet'}</p><h2>{dismissed ? 'We’ll leave it there.' : 'The clues don’t yet support a need.'}</h2><p>{dismissed ? 'No product search will run for this dismissed suggestion. Reset the demo below if you want to try again.' : 'Review the stored observations below. Needle needs complementary evidence from different sources.'}</p></div>}
     {active && <article className="intent-connection browsing-reveal" aria-label="Needle’s connection">
       <p className="intent-kicker">{active.origin?.kind === 'model' ? `AI-generated hypothesis · ${active.origin.model}` : 'Prepared rule-based demo'} · {active.interest === 'confirmed' ? 'checked with you' : 'tentative'}</p>
