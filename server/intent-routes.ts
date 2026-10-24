@@ -10,7 +10,7 @@ const observation = z.object({
     const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
   }, 'Use a public page origin.'),
   sourceTitle: z.string().trim().max(200), summary: z.string().trim().min(1).max(500),
-  tags: z.array(z.enum(intentTags)).min(1).max(6), provenance: z.enum(['observed', 'demo_fixture']),
+  tags: z.array(z.enum(intentTags)).max(6), provenance: z.enum(['observed', 'demo_fixture']),
   entityKey: z.string().trim().min(1).max(200).optional(), collectionId: id.optional(),
 }).strict();
 const attention = z.object({

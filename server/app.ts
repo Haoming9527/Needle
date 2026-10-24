@@ -18,6 +18,8 @@ import { CommerceStore } from './commerce.js';
 import { createCommerceRouter } from './commerce-routes.js';
 import { contextTags } from '../shared/context.js';
 import { intentTags, intentSuggestionKey, type RecommendationKey } from '../shared/intent.js';
+import { SYNTHESIS_PROMPT_VERSION, type SynthesisProvider } from '../shared/synthesis.js';
+import { AIIntentSynthesizer, validateSynthesisOutput } from './intent-synthesizer.js';
 
 const preferenceSchema = z.object({ budget: z.number().finite().nonnegative().max(1_000_000_000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional() }).strict();
 const imageDataSchema = z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/);
@@ -37,7 +39,7 @@ const clarifySchema = z.object({ sessionId: z.string().uuid(), answer: z.string(
 const orderSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), confirmationId: z.string().min(8).max(100), confirmed: z.literal(true), cartItemId: z.string().uuid().optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 const cartSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 
-export interface AppOptions { config?: ServerConfig; sampleProvider?: ProductProvider; liveProvider?: ProductProvider; webDemoProvider?: ProductProvider }
+export interface AppOptions { config?: ServerConfig; sampleProvider?: ProductProvider; liveProvider?: ProductProvider; webDemoProvider?: ProductProvider; intentSynthesisProvider?: SynthesisProvider }
 
 export function createApp(options: AppOptions = {}) {
   const config = options.config ?? getConfig();
@@ -46,6 +48,11 @@ export function createApp(options: AppOptions = {}) {
   const database = new NeedleDatabase(config.databaseFile ?? (config.orderFile ? `${config.orderFile}.sqlite` : ':memory:'), config.orderFile);
   app.locals.database = database;
   const intent = new IntentStore(database.connection);
+  const synthesisAvailable = !!options.intentSynthesisProvider || agentAvailable(config);
+  intent.configureSynthesis({ available: synthesisAvailable, model: config.model, promptVersion: SYNTHESIS_PROMPT_VERSION });
+  const synthesizer = options.intentSynthesisProvider ?? new AIIntentSynthesizer(config);
+  let synthesisSequence = 0;
+  let pendingSynthesis: { key: string; controller: AbortController } | undefined;
   const commerce = new CommerceStore(database.connection);
   app.locals.intent = intent;
   app.locals.commerce = commerce;
@@ -80,7 +87,7 @@ export function createApp(options: AppOptions = {}) {
     if (signal.type === 'save_remove') { intent.retractAction(origin, entityKey, 'save'); intent.retractAction(origin, entityKey, 'wishlist'); return; }
     if (!intent.getState().consent) return;
     const tags = [...new Set([...item.tags, ...contextTags(`${item.label} ${item.summary ?? ''}`)])].filter((tag): tag is typeof intentTags[number] => (intentTags as readonly string[]).includes(tag));
-    if (!tags.length) return;
+    // Saved context can support a new need even outside the prepared topic taxonomy.
     intent.record({ id: signal.eventId, action: signal.type === 'group_buy_interest' ? 'group_interest' : item.offer ? 'wishlist' : 'save', sourceOrigin: origin, sourceTitle: (item.sourceTitle ?? item.label).slice(0, 200), summary: (item.summary ?? item.label).slice(0, 500), tags, provenance: item.provenance, entityKey });
   }));
 
@@ -122,7 +129,7 @@ export function createApp(options: AppOptions = {}) {
     }
   }
 
-  async function bounded<T>(req: Request, res: Response, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async function bounded<T>(req: Request, res: Response, work: (signal: AbortSignal) => Promise<T>, timeoutMessage = 'This search took too long. Try again or narrow your description.'): Promise<T> {
     const controller = new AbortController();
     const disconnect = () => controller.abort();
     const responseClosed = () => { if (!res.writableEnded) controller.abort(); };
@@ -135,7 +142,7 @@ export function createApp(options: AppOptions = {}) {
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => {
             controller.abort();
-            reject(new ApiError(504, 'TIMEOUT', 'This search took too long. Try again or narrow your description.'));
+            reject(new ApiError(504, 'TIMEOUT', timeoutMessage));
           }, config.timeoutMs);
         }),
       ]);
@@ -171,6 +178,38 @@ export function createApp(options: AppOptions = {}) {
     } catch (error) { next(error); }
   });
 
+  // Explicit analysis of saved summaries; no product tools or automatic calls from GET/polling.
+  app.post('/intent/synthesize', async (req, res, next) => {
+    let ownedController: AbortController | undefined;
+    try {
+      const body = z.object({ contextKey: z.string().min(1).max(200), correction: z.string().trim().min(1).max(500).optional() }).strict().parse(req.body);
+      const state = intent.getState();
+      if (!state.consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before connecting your saved observations.');
+      const snapshot = intent.synthesisSnapshot();
+      if (snapshot.contextKey !== body.contextKey) throw new ApiError(409, 'INTENT_CONTEXT_CHANGED', 'Your observations changed. Review them before connecting them again.');
+      if (new Set(snapshot.observations.map(value => value.sourceKey)).size < 2) throw new ApiError(422, 'SYNTHESIS_MORE_CONTEXT', 'Record context from at least two separate sources before asking AI to connect it.');
+      const cached = state.synthesis;
+      if (cached && ['ready', 'abstained'].includes(cached.status) && (cached.correction ?? '') === (body.correction ?? '')) return res.json(state);
+      if (!synthesisAvailable) throw new ApiError(503, 'AI_NOT_CONFIGURED', 'Connect an AI provider in the local backend to analyze these observations. The prepared rule-based demo remains available separately.');
+      const key = JSON.stringify([snapshot.contextKey, body.correction ?? '']);
+      if (pendingSynthesis?.key === key) throw new ApiError(409, 'SYNTHESIS_IN_PROGRESS', 'These observations are already being connected. Wait for the current request.');
+      pendingSynthesis?.controller.abort();
+      ownedController = new AbortController(); pendingSynthesis = { key, controller: ownedController };
+      const sequence = ++synthesisSequence;
+      // A requested correction immediately withdraws the former reviewed need,
+      // including when the replacement model request later fails or is cancelled.
+      const previous = state.hypotheses.find(value => value.origin?.kind === 'model' && value.status === 'active');
+      if (body.correction && previous) intent.feedback(previous.id, { action: 'dismiss' });
+      const revision = intent.synthesisRevision();
+      const controller = ownedController;
+      const output = await bounded(req, res, signal => synthesizer.synthesize(snapshot, AbortSignal.any([signal, controller.signal]), body.correction), 'Connecting these observations took too long. Retry when you are ready.');
+      if (controller.signal.aborted || sequence !== synthesisSequence || intent.synthesisRevision() !== revision) throw new ApiError(409, 'INTENT_CONTEXT_CHANGED', 'Your context or feedback changed while AI was working. Review the current observations and retry.');
+      const validated = validateSynthesisOutput(output, snapshot);
+      res.json(intent.saveSynthesis(snapshot.contextKey, validated, body.correction));
+    } catch (error) { next(error); }
+    finally { if (ownedController && pendingSynthesis?.controller === ownedController) pendingSynthesis = undefined; }
+  });
+
   // Context-led suggestions require a reviewed need. Manual product search remains independent.
   app.post('/intent/hypotheses/:id/recommendation', async (req, res, next) => {
     try {
@@ -184,11 +223,13 @@ export function createApp(options: AppOptions = {}) {
         return hypothesis;
       };
       const hypothesis = current();
-      const queries: Record<RecommendationKey, string> = {
+      const queries: Record<Exclude<RecommendationKey, 'contextual'>, string> = {
         'portable-lunch': 'portable lunch container', 'home-meal-prep': 'food storage container',
         recording: 'microphone', 'work-calls': 'headset for work calls',
       };
-      const selection = { text: `${queries[hypothesis.recommendationKey]}${hypothesis.constraints ? `; ${hypothesis.constraints}` : ''}`, pageTitle: 'Needle confirmed context' };
+      const query = hypothesis.origin?.kind === 'model' ? hypothesis.origin.productQuery : hypothesis.recommendationKey !== 'contextual' ? queries[hypothesis.recommendationKey] : undefined;
+      if (!query) throw new ApiError(409, 'INTENT_CONTEXT_CHANGED', 'Review the current need before looking for a product.');
+      const selection = { text: `${query}${hypothesis.constraints ? `; ${hypothesis.constraints}` : ''}`, pageTitle: 'Needle confirmed context' };
       const preferences = budgetFromInstruction(selection.text, {});
       const result = await bounded(req, res, async signal => {
         const interpretation = await providers.sample.identify(selection, signal);
