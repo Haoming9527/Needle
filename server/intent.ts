@@ -203,8 +203,15 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
     // Require complementary evidence across two sites, not two repetitions of the same topic.
     const external = relevant.filter(value => !!sourceIdentity(value));
     const independent = (a: IntentObservation, b: IntentObservation) => sourceIdentity(a) !== sourceIdentity(b) && !!a.capture === !!b.capture;
-    const first = external.find(a => a.tags.includes(candidate.tags[0]!) && external.some(b => independent(a, b) && b.tags.includes(candidate.tags[1]!)));
-    const second = first && external.find(b => independent(first, b) && b.tags.includes(candidate.tags[1]!));
+    const pairFor = (values: IntentObservation[]) => {
+      const first = values.find(a => a.tags.includes(candidate.tags[0]!) && values.some(b => independent(a, b) && b.tags.includes(candidate.tags[1]!)));
+      const second = first && values.find(b => independent(first, b) && b.tags.includes(candidate.tags[1]!));
+      return first && second ? [first, second] as const : undefined;
+    };
+    // Prefer actual measured demo interactions once both sources are available.
+    // Until then, preserve the complete replay/external connection and its binding.
+    const pair = pairFor(external.filter(value => !!value.capture)) ?? pairFor(external);
+    const first = pair?.[0], second = pair?.[1];
     if (!first || !second) return [];
     // Replays and measured browsing describe alternative demonstrations of the same
     // weak context; never add their attention points together. Explicit commerce

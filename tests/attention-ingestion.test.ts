@@ -107,6 +107,21 @@ describe('measured attention on controlled demo sources', () => {
     const weaker = (await api.post('/intent/attention').send({ ...original, id: randomUUID(), measurement: { dwellMs: 9000, visitOrdinal: 4 } }).expect(200)).body;
     expect(weaker.observations[0].capture).toEqual(state.observations[0].capture);
   });
+  it('prefers a completed measured pair over an earlier confirmed replay and requires fresh confirmation', async () => {
+    const api = setup(); await enable(api);
+    const replay = { action: 'dwell', sourceTitle: 'Replay source', summary: 'Prepared replay context', provenance: 'demo_fixture' };
+    await api.post('/intent/observations').send({ ...replay, id: 'replay-meal', sourceOrigin: 'https://recipes.example', tags: ['meal-prep'] }).expect(200);
+    await api.post('/intent/observations').send({ ...replay, id: 'replay-cycle', sourceOrigin: 'https://cycling.example', tags: ['cycle-commute'] }).expect(200);
+    await api.post('/intent/hypotheses/lunch-on-the-move/feedback').send({ action: 'confirm', constraints: 'Earlier replay constraint' }).expect(200);
+    const first = (await api.post('/intent/attention').send(capture()).expect(200)).body.hypotheses[0];
+    expect(first).toMatchObject({ interest: 'confirmed', evidencePoints: 4 });
+    expect(first.connection.observations.map((value: any) => value.observationId)).toEqual(['replay-meal', 'replay-cycle']);
+    const measured = (await api.post('/intent/attention').send(capture('commute-guide')).expect(200)).body.hypotheses[0];
+    expect(measured).toMatchObject({ interest: 'tentative', readiness: 'exploring', evidencePoints: 4 });
+    expect(measured.connection.observations.map((value: any) => value.capture.sourceId)).toEqual(['recipe-guide', 'commute-guide']);
+    expect(measured.constraints).toBeUndefined();
+    expect(measured.connection).not.toHaveProperty('productRationale');
+  });
   it('only recognizes registered pages on the allowed development origins', () => {
     expect(attentionSourceForUrl('http://127.0.0.1:5173/recipe-demo.html?view=reading')?.id).toBe('recipe-guide');
     for (const url of ['https://localhost:5173/recipe-demo.html', 'http://localhost:5173/recipe-demo.html/extra', 'http://localhost:5173/not-demo.html', 'http://user:pass@localhost:5173/recipe-demo.html', 'http://evil.example/recipe-demo.html']) expect(attentionSourceForUrl(url)).toBeUndefined();
