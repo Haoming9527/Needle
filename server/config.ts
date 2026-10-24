@@ -9,6 +9,10 @@ export interface ServerConfig {
   orderFile: string | null;
   databaseFile?: string;
   gatewayKey?: string;
+  decisionModel?: string;
+  speechModel?: string;
+  transcriptionModel?: string;
+  speechVoice?: string;
 }
 
 export function getConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -21,6 +25,10 @@ export function getConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     orderFile: '.local/demo-orders.json',
     databaseFile: env.DATABASE_PATH?.trim() || '.local/needle.sqlite',
     gatewayKey: env.AI_GATEWAY_API_KEY?.trim() ?? '',
+    decisionModel: env.OPENAI_DECISION_MODEL?.trim() || 'gpt-6-luna',
+    speechModel: env.OPENAI_TTS_MODEL?.trim() || 'gpt-4o-mini-tts',
+    transcriptionModel: env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-transcribe',
+    speechVoice: env.OPENAI_TTS_VOICE?.trim() || 'coral',
   };
 }
 

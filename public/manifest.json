@@ -1,51 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Needle — Shop what you see",
-  "version": "0.7.0",
+  "version": "0.7.3",
   "description": "Find products across stores from anything you see online. Local prototype with simulated checkout.",
   "minimum_chrome_version": "116",
-  "permissions": [
-    "activeTab",
-    "contextMenus",
-    "sidePanel",
-    "scripting",
-    "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
-  "content_scripts": [
-    {
-      "matches": [
-        "http://*/*",
-        "https://*/*"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "run_at": "document_start",
-      "all_frames": false
-    }
-  ],
-  "background": {
-    "service_worker": "background.js",
-    "type": "module"
-  },
-  "side_panel": {
-    "default_path": "panel.html"
-  },
-  "action": {
-    "default_title": "Find with Needle",
-    "default_icon": {
-      "48": "icons/needle-48.png",
-      "128": "icons/needle-128.png"
-    }
-  },
-  "icons": {
-    "48": "icons/needle-48.png",
-    "128": "icons/needle-128.png"
-  },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:4318; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'"
-  }
+  "permissions": ["activeTab", "contextMenus", "sidePanel", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "content_scripts": [{ "matches": ["http://*/*", "https://*/*"], "js": ["content.js"], "run_at": "document_start", "all_frames": false }],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "side_panel": { "default_path": "panel.html" },
+  "action": { "default_title": "Find with Needle", "default_icon": { "48": "icons/needle-48.png", "128": "icons/needle-128.png" } },
+  "icons": { "48": "icons/needle-48.png", "128": "icons/needle-128.png" },
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:4318; img-src 'self' data: https:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'" }
 }

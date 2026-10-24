@@ -5,7 +5,13 @@
 A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and SQLite context memory, collections, cart and purchase history. Needle searches across stores, using 24 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
 
 
-## Connected discovery demo (v0.7)
+## Ryan — Part 4: Context to intent
+
+[Start here](docs/ryan/README.md) · [Architecture](docs/ryan/ARCHITECTURE.md) · [Demo](docs/ryan/DEMO.md) · [Team integration](docs/ryan/INTEGRATION.md) · [GitHub wiki](https://github.com/Haoming9527/Needle/wiki)
+
+Part 4 is packaged for review in [PR #1](https://github.com/Haoming9527/Needle/pull/1). It connects permissioned observations to a user-confirmed need and hands that need to the existing shopping flow. The source layout is preserved so teammates can continue working in their existing modules.
+
+## Connected discovery demo (v0.7.3)
 
 Open **Discover** for the primary low-intent workflow: browse a recipe article, then a cycling-to-work article. Two controlled local reading pages measure actual cursor time within marked regions; their articles and topic labels are prepared demo data. Choose **Connect observations with AI** to propose a tentative need, with cited observations, a short explanation and uncertainty. The model can also decline to connect them. Confirm the need before one relevant product appears; correcting the connection produces a new hypothesis that needs confirmation. AI synthesis, heuristic readiness and product search are separate; ordinary-site background tracking is not implemented. Existing Save / Find capture and search relevance remain unchanged. A labelled synthetic replay is available as a fallback.
 
@@ -53,7 +59,18 @@ PORT=4318
 
 Use a vision-capable model available to your account. The existing configured model takes precedence over the default. Restart the API after changing `.env`.
 
-Alternatively, set `AI_GATEWAY_API_KEY`; the OpenAI key takes priority when both are present. No Vercel deployment is required. `EXA_API_KEY` enables automatic web fallback when the catalog has no close match, including searches started from the right-click popup. Without it, prepared catalog searches still work.
+Product selection and voice reuse `OPENAI_API_KEY`. Optional overrides (no additional keys required):
+
+```dotenv
+OPENAI_DECISION_MODEL=gpt-6-luna
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
+OPENAI_TTS_VOICE=coral
+OPENAI_TRANSCRIBE_MODEL=gpt-transcribe
+```
+
+The dedicated OpenAI Decisions endpoint chooses the best fit from the retrieved candidates, using the marked cursor crop, identified features, constraints, and clarification replies. Only a successful choice receives **Best fit**. A rejected catalog candidate set can trigger Exa fallback. Missing credentials or a failed decision keep the existing grounded recommendations with a search note; prices, match labels, and merchant facts are never rewritten by the decision.
+
+Alternatively, set `AI_GATEWAY_API_KEY` for identification and catalog search; Decisions and voice require a direct `OPENAI_API_KEY`. The OpenAI key takes priority when both are present. No Vercel deployment is required. `EXA_API_KEY` enables automatic web fallback when the catalog has no close match, including searches started from the right-click popup. Without it, prepared catalog searches still work.
 
 With a key, the agent interprets the selected image, calls a SQLite catalog-search tool, and recommends grounded offers. Without a key, text descriptions still search the prepared catalog; image recognition is unavailable. Keys stay on the backend and are never bundled into the extension.
 
@@ -71,16 +88,24 @@ npm run build
 
 1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
 2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.7.0**, then refresh the webpage to remove the previous content script.
+3. Check that Chrome shows **version 0.7.3**, then refresh the webpage to remove the previous content script.
 4. Right-click on an ordinary **HTTP/HTTPS webpage**. Choose **Save inspiration** to retain bounded selected context, or **Find products** to capture and identify the object.
-5. Only **Find products** captures a small region around the cursor and searches. Buy and Add to cart appear when a result is ready. Saving inspiration does not require a screenshot or product match. Ambiguous visual selections prompt a clarification question; the answer reuses the original frame.
+5. Only **Find products** captures a small region around the cursor and searches. Buy and Add to cart appear when a result is ready. Saving inspiration does not require a screenshot or product match. During Find, the team’s red cursor glow remains visible while searching and hides during capture. Ambiguous visual selections prompt a clarification question; the answer reuses the original frame.
 6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
 
 Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. The popup stays anchored through loading and results. Clarification replies in either the popup or panel reuse the original frame; manual crop/description controls remain available.
 
-If Chrome still shows only its normal menu, verify version 0.7.0, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+If Chrome still shows only its normal menu, verify version 0.7.3, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
 
 When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
+
+### Voice answers
+
+When Needle asks a clarification question, click the small **microphone icon inside the answer field** to record a reply. Allow microphone access when Chrome asks, speak, then click the same button (now a stop icon). Review or edit the transcript and press **Search** in the popup or **Send answer** in the panel. Transcription never submits an answer or purchases anything automatically.
+
+Recording starts only after the microphone button is clicked, stops after 30 seconds, and is cancelled when the question is closed or replaced. Audio is sent through the local backend to OpenAI and held only in memory; it is not written to SQLite. Typing remains available when a page blocks microphone access. The popup and panel each use one microphone control; the Speech endpoint remains available on the backend without a separate playback button.
+
+Technical lifecycle note: this prototype uses OpenAI's Speech endpoint with `gpt-4o-mini-tts`, currently scheduled to retire on 6 January 2027. Migrating to Realtime speech requires an integration change, not just a model-name substitution. See the [speech guide](https://developers.openai.com/api/docs/guides/text-to-speech).
 
 ### Browser permission
 
@@ -108,6 +133,8 @@ Existing `.local/demo-orders.json` receipts are imported once without changing t
 | `POST /intent/hypotheses/:id/recommendation` | Search only after confirmation of the current need |
 | `POST /refine` | Search again while preserving the original target |
 | `POST /clarify` | Answer a pending question and re-identify the original crop |
+| `POST /voice/question` | Speak the pending question from its saved session |
+| `POST /voice/transcribe` | Transcribe a short recording into an editable reply |
 | `GET /cart`, `POST /cart` | Read cart or add a reviewed offer |
 | `POST /cart/:id/quantity` | Update quantity |
 | `POST /cart/:id/remove` | Remove an entry |

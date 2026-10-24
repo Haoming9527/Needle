@@ -2,7 +2,15 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
-## Step 4 AI synthesis (current pass)
+## Ryan Part 4 package — latest-main integration
+
+- Integrated main through `b2d4393` (including voice, Decisions, and the v0.7.3 glow) while preserving explicit Save/Find and Part 4’s consent, correction, and confirmation gates. Resolved all shared-file conflicts on the review branch.
+- **301 tests in 30 files passed** on the integrated tree. `npm run build` passed TypeScript, Vite, both extension bundles, and package validation.
+- Fixed Saved workspace refresh after another tab saves an item. Readiness now uses the exact server-owned hypothesis attached to a recommendation session, including tagless actions and refine/clarify continuations. Old-need commerce cannot increase a corrected need’s readiness or become new synthesis evidence.
+- Added Ryan’s overview, architecture, data contract, demo runbook, integration guide, review backlog, and wiki source under `docs/ryan/`.
+- Tests use controlled providers. No actual external-model synthesis, installed Chrome microphone/capture rehearsal, arbitrary cross-site instrumentation, or seller bridge was verified in this package pass. The earlier browser-rehearsal records below retain their original scope and commit context.
+
+## Step 4 AI synthesis (earlier pass at 0ef8b5a)
 
 - Added an explicit provider-backed synthesis stage over at most 12 saved observations. Responses must cite existing evidence from at least two sources or abstain. It has no search tools. The product route still requires current user confirmation; corrections withdraw the old product and require reconfirmation.
 - **253 tests in 26 files passed**, including provider structured-output validation, SDK response handling, store persistence, cache behavior, tagless contexts, consent, stale response races, correction budgets, and cancellation even when a provider ignores the abort signal. TypeScript, production Vite/extension build and package validation passed.
@@ -11,9 +19,9 @@ Checked on 25 October 2026 (Asia/Singapore).
 - No configured API key was present in this checkout. **Actual external-model synthesis and reasoning quality remain unverified.** Mocked SDK tests and scripted UI responses verify the integration, not model quality. See `AI_SYNTHESIS.md` for the live rehearsal cases.
 - This pass does not modify extension capture, the attention collector, product identification, catalog/Exa providers, crop or clarification components. The shared Save hook now admits opted-in bounded context with no prepared topic tag, enabling new topics without changing how capture or search works.
 
-## Latest team synchronization
+## Earlier team synchronization at 0ef8b5a
 
-- Remote main remains `05909ce`; this branch includes it. The latest separate `codex/logan-decision-review` head inspected was `bb5a666`, adding local model services, model cards, an optional Logan decision adapter and tests. These are not integrated into this intent flow; their reported evaluations were not independently reproduced here.
+- At that check, remote main was `05909ce`; this branch includes it. The latest separate `codex/logan-decision-review` head inspected was `bb5a666`, adding local model services, model cards, an optional Logan decision adapter and tests. These are not integrated into this intent flow; their reported evaluations were not independently reproduced here.
 - Synced main through `05909ce`, which removes only eight Logan data/model/report artifacts for separate branch review. Low-intent source, runtime, and tests are unchanged. The earlier artifact review below is historical; those files are no longer in this branch.
 
 ## v0.7 measured attention integration
@@ -47,6 +55,38 @@ Checked on 25 October 2026 (Asia/Singapore).
 - Live passive dwell tracking, installed Chrome/X behavior, authenticated provider calls and real seller data-sharing were not validated in this run. Passive signals are labelled fixtures; the actual cursor Save path is explicit context capture. Logan remains a separate local seller concept. Expired pledge evidence currently needs withdrawal to retract intent.
 
 The sections below are historical teammate verification records; their older control labels and test counts do not describe this integrated version.
+## v0.7.3 visible search glow
+
+- Increased the red marker's glow contrast and pulse visibility while retaining its 6px dot, bounded 18px halo, and 20px popup clearance. It remains active during initial and clarification searches, pauses for capture, and disappears on results, questions, errors, or cancellation.
+- All 16 content-script checks passed. TypeScript, production build, and extension package validation passed. The browser fixture confirmed the visible glow during loading; preview: `.local/screenshots/needle-search-glow-v073.png`.
+
+## v0.7.2 single microphone control
+
+- Simplified clarification replies in the popup and panel to one icon-only microphone inside the answer field, alongside the existing Search/Send action. Removed the separate playback and voice-button row.
+- The microphone switches to a stop/cancel control while active. Editable transcripts, typing, cancellation, and errors remain; the tooltip explains that microphone audio is sent to OpenAI. Backend speech support is retained without automatic playback.
+- All 23 content-script and voice-controller checks passed. TypeScript, production build, and extension package validation passed.
+
+## v0.7.1 compact cursor marker
+
+- Reduced the red dot to 6px with a soft, bounded 18px halo. The pulse changes opacity only; there is no expanding ring or spreading blur.
+- Popup placement reserves a 20px gap from the clicked point. It chooses the left side near the right edge, or above/below on narrow pages, limiting growth so loading, questions, and results stay clear of the marker.
+- All 16 content-script tests passed, including stable placement and height limits on narrow viewports. TypeScript, production build, and extension package validation passed. The browser fixture visually confirmed the smaller glow and separation during loading; preview: `.local/screenshots/needle-glow-v071.png`.
+
+## v0.7 product decisions and voice
+
+- OpenAI's dedicated Decisions API ranks retrieved offers after discovery, refinement, and clarification. It uses the clicked crop/coordinates when available, respects currency-specific budgets, and can reject all candidates. A rejected catalog set triggers the existing Exa path. Failed decisions leave grounded offers intact with a warning and no Best fit badge.
+- A real authenticated Decisions request with deliberately reversed headphone candidates selected `sample-sony-xm5` using `gpt-6-luna`, matching the requested Sony WH-1000XM5. No product facts were rewritten.
+- A real authenticated Speech request read a saved clarification question with `gpt-4o-mini-tts`. Its generated MP3 was passed to `gpt-transcribe`, which returned “Do you mean the headphones or the lamp?” This check used generated audio, not the user's microphone.
+- Both popup and panel offer explicit Listen question and Answer by voice controls. Transcripts remain editable until submitted. Audio is transient; question speech is bound to the saved session. Cancellation, late microphone permission grants, late transcripts, size limits, and track/object-URL cleanup have automated coverage.
+- All 178 tests in 17 files passed, as did TypeScript, the production build, and extension package validation for 0.7.0. Existing SQLite data and `.env` credentials were preserved.
+- The browser clarification fixture displays the controls and recovers from a simulated voice-service failure while keeping typing available. Native Chrome microphone permissions and audible playback remain for the user's smoke test after reloading the extension and refreshing the webpage.
+
+## v0.6.1 cursor search glow
+
+- Added a red dot with a gently pulsing halo at the original right-click coordinates while discovery or clarification is pending. The marker does not move the popup or intercept pointer input; reduced-motion preference uses a steady glow.
+- The marker shares the popup's capture visibility so it is excluded from the screenshot. Results, questions, failures, cancellation, and disposal hide or remove it.
+- All 13 content-script tests passed, including marker position near viewport edges, capture visibility, and clarification/error/cancel lifecycle. TypeScript, production build, and extension package validation passed.
+- The 0.6.1 native visual check remains for the user after reloading Needle and refreshing the webpage.
 
 ## v0.5 editorial photography and loading
 

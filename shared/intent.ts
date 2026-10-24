@@ -6,6 +6,8 @@ export type IntentAction = typeof intentActions[number];
 export type IntentTag = typeof intentTags[number];
 export interface IntentObservationInput {
   capture?: IntentCaptureMetadata;
+  /** Server-resolved recommendation provenance; never inferred from topic overlap. */
+  recommendationHypothesisId?: string;
   id: string; action: IntentAction; sourceOrigin: string; sourceTitle: string; summary: string;
   tags: IntentTag[]; provenance: 'observed' | 'demo_fixture'; entityKey?: string; collectionId?: string;
 }

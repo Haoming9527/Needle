@@ -51,7 +51,7 @@ The key demo reveal now reads visually as two source cards → one tentative que
 
 The implementation integrates remote commit `6f27063`: retailer-neutral search and source labels, currency improvements, selected-image fallbacks, and associated tests. It also preserves `66b7ccf` and `4e9c3c7`, which add the independent `logan/` bilingual shopper/seller workspace and HookRank content ranking.
 
-The latest integration also preserves `219a92f`: generated demo photos, cursor-point crop annotation, clarification replies, and loading progress. These start after explicit Find; Save remains context-only. The combined build is version 0.7.0.
+The latest integration also preserves `219a92f`: generated demo photos, cursor-point crop annotation, clarification replies, and loading progress. These start after explicit Find; Save remains context-only. The Ryan package also integrates main through `b2d4393`, including voice, Decisions, and the compact search glow. The combined build is version 0.7.3.
 
 Team commit `05909ce` reverted the synthetic datasets and E5 head artifacts from main for separate branch review. That revert is now included here. It changes no runtime code and leaves capture, search relevance and low-intent scoring intact. No trained Logan model is active in this flow.
 
@@ -66,7 +66,7 @@ Logan runs separately on port 4320. Its local JSON events do not yet feed the SQ
 - 1:00–1:30: Measure time in the commuting region. These are two separate everyday activities, neither a product search.
 - 1:30–2:15: Show the connection and its uncertainty. This is the key moment: Needle proposes a useful need and asks the user to check it.
 - 2:15–2:45: Confirm with a budget and show one relevant product with its reason. Alternatively correct to “I eat at home”, confirm the revised need, and show the changed suggestion.
-- 2:45–3:00: Explain that ordinary recommenders also use behavior. The demo's distinction is permissioned cross-site context, an inspectable connection and user correction before commerce—not a claim that cursor data alone proves intent.
+- 2:45–3:00: Explain that ordinary recommenders also use behavior. The demo's distinction is permissioned cross-source context, an inspectable connection and user correction before commerce—not a claim that cursor data alone proves intent.
 
 Before presenting, rehearse with the configured provider: the live model may abstain or choose a different supported need. Without a key, explicitly select the prepared rule demo. The development fixture at `/tests/fixtures/intent-synthesis.html` is for UI testing only and visibly labels every response as scripted.
 

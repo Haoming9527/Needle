@@ -402,3 +402,51 @@ describe("explicit AI context synthesis routes", () => {
     gate.release(output);
   });
 });
+
+describe('recommendation-session commerce attribution', () => {
+  it('attributes tagless saves and carts to their confirmed objective without carrying old purchases into a correction', async () => {
+    const s = setup(); const key = seed(s.store);
+    const product = { ...offer, title: 'Watercolour kit', description: 'Brushes and paints', reason: 'Art supplies' };
+    s.search.mockResolvedValue({ offers: [product], warnings: [] });
+    const initial = modelHypothesis((await connect(s.app, key).expect(200)).body);
+    const confirmed = modelHypothesis(s.store.feedback(initial.id, { action: 'confirm' }));
+    const recommendation = (await request(s.app).post(`/intent/hypotheses/${initial.id}/recommendation`).send({ contextKey: intentSuggestionKey(confirmed) }).expect(200)).body;
+    expect(recommendation.recommendationHypothesisId).toBe(initial.id);
+    await request(s.app).post('/saved-items').send({ id: 'saved-art', label: product.title, summary: product.description, sourceOrigin: 'https://needle.local', tags: [], provenance: 'observed', offer: product, sessionId: recommendation.sessionId }).expect(200);
+    expect(modelHypothesis(s.store.getState()).readiness).toBe('considering');
+    const cart = (await request(s.app).post('/cart').send({ sessionId: recommendation.sessionId, offerId: product.id }).expect(200)).body.items[0];
+    expect(modelHypothesis(s.store.getState()).readiness).toBe('ready_to_review');
+    s.synthesize.mockResolvedValue({ ...output, need: 'Painting at home could be useful.', productQuery: 'watercolour supplies for home' });
+    const revised = modelHypothesis((await connect(s.app, key, 'I paint at home').expect(200)).body);
+    expect(revised.id).not.toBe(initial.id);
+    const revisedConfirmed = modelHypothesis(s.store.feedback(revised.id, { action: 'confirm' }));
+    expect(revisedConfirmed.readiness).toBe('exploring');
+    await request(s.app).post(`/cart/${cart.id}/remove`).send({}).expect(200);
+    const next = (await request(s.app).post(`/intent/hypotheses/${revised.id}/recommendation`).send({ contextKey: intentSuggestionKey(revisedConfirmed) }).expect(200)).body;
+    await request(s.app).post('/cart').send({ sessionId: next.sessionId, offerId: product.id }).expect(200);
+    expect(modelHypothesis(s.store.getState()).readiness).toBe('ready_to_review');
+    expect(s.store.synthesisSnapshot().observations).toHaveLength(2);
+  });
+});
+
+
+describe('immutable recommendation follow-up provenance', () => {
+  it.each(['refine', 'clarify'] as const)('preserves attribution through %s while ordinary discovery stays unattributed', async action => {
+    const s = setup(); const key = seed(s.store);
+    if (action === 'clarify') s.identify.mockResolvedValueOnce({ ...interpreted, needsClarification: true, clarification: 'Which art supplies?' });
+    const initial = modelHypothesis((await connect(s.app, key).expect(200)).body);
+    const confirmed = modelHypothesis(s.store.feedback(initial.id, { action: 'confirm' }));
+    const original = (await request(s.app).post(`/intent/hypotheses/${initial.id}/recommendation`).send({ contextKey: intentSuggestionKey(confirmed) }).expect(200)).body;
+    const follow = (sessionId: string) => request(s.app).post(`/${action}`).send(action === 'refine' ? { sessionId, instruction: 'under USD 30' } : { sessionId, answer: 'watercolour supplies', selection: { text: 'art supplies' } });
+    const next = (await follow(original.sessionId).expect(200)).body;
+    expect(next.sessionId).not.toBe(original.sessionId);
+    expect(next.recommendationHypothesisId).toBe(initial.id);
+    expect(s.app.locals.database.session(original.sessionId).result.recommendationHypothesisId).toBe(initial.id);
+    await request(s.app).post('/cart').send({ sessionId: next.sessionId, offerId: offer.id }).expect(200);
+    expect(modelHypothesis(s.store.getState()).readiness).toBe('ready_to_review');
+    if (action === 'clarify') s.identify.mockResolvedValueOnce({ ...interpreted, needsClarification: true, clarification: 'Which art supplies?' });
+    const manual = (await request(s.app).post('/discover').send({ mode: 'sample', selection: { text: 'art supplies' } }).expect(200)).body;
+    expect(manual.recommendationHypothesisId).toBeUndefined();
+    expect((await follow(manual.sessionId).expect(200)).body.recommendationHypothesisId).toBeUndefined();
+  });
+});

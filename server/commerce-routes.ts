@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { publicImageUrl } from "./evidence.js";
 import { Router } from "express";
 import { z } from "zod";
+import type { Offer } from "../shared/types.js";
 import type { CommerceSignal } from "../shared/commerce.js";
 import { CommerceStore } from "./commerce.js";
 const id = z.string().trim().min(1).max(150);
@@ -64,12 +65,14 @@ const save = z
     tags: z.array(z.string().max(100)).max(50).optional(),
     provenance: z.enum(["observed", "demo_fixture"]),
     offer: offer.optional(),
+    sessionId: z.string().uuid().optional(),
     collectionId: id.optional(),
   })
   .strict();
 export function createCommerceRouter(
   store: CommerceStore,
   onSignal?: (signal: CommerceSignal) => void | Promise<void>,
+  resolveOffer?: (sessionId: string, offerId: string) => { offer: Offer; recommendationHypothesisId?: string },
 ) {
   const router = Router();
   const emit = (signal: CommerceSignal) => {
@@ -84,7 +87,9 @@ export function createCommerceRouter(
   );
   router.post("/saved-items", (req, res, next) => {
     try {
-      const item = store.saveItem(save.parse(req.body));
+      const { sessionId, ...input } = save.parse(req.body);
+      const resolved = sessionId && input.offer && resolveOffer ? resolveOffer(sessionId, input.offer.id) : undefined;
+      const item = store.saveItem({ ...input, ...(resolved ? { offer: resolved.offer, label: resolved.offer.title, summary: resolved.offer.description, recommendationHypothesisId: resolved.recommendationHypothesisId } : {}) });
       emit({
         type: "save",
         eventId: `save:${item.id}:${item.generation}`,

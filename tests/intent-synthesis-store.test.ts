@@ -139,3 +139,41 @@ describe('persisted grounded context synthesis', () => {
   });
 
 });
+
+
+describe('model objective-bound commerce readiness', () => {
+  function commerce(store: IntentStore, action: 'wishlist' | 'cart' | 'group_interest', hypothesisId?: string, origin = 'https://needle.local') {
+    return store.record({ id: randomUUID(), action, sourceOrigin: origin, sourceTitle: 'Recommended binoculars', summary: 'Wildlife binoculars', tags: [], provenance: 'observed', entityKey: 'binoculars', recommendationHypothesisId: hypothesisId });
+  }
+  it('uses explicit attribution for tagless commerce and restores weaker active actions on withdrawal', () => {
+    const { store } = setup(); const ai = save(store).hypotheses[0]!;
+    store.feedback(ai.id, { action: 'confirm' });
+    const contextKey = store.synthesisSnapshot().contextKey;
+    expect(commerce(store, 'wishlist', ai.id).hypotheses[0]?.readiness).toBe('considering');
+    expect(commerce(store, 'group_interest', ai.id).hypotheses[0]?.readiness).toBe('conditional');
+    expect(commerce(store, 'cart', ai.id).hypotheses[0]?.readiness).toBe('ready_to_review');
+    expect(store.retractAction('https://needle.local', 'binoculars', 'cart').hypotheses[0]?.readiness).toBe('conditional');
+    expect(store.retractAction('https://needle.local', 'binoculars', 'group_interest').hypotheses[0]?.readiness).toBe('considering');
+    expect(store.retractAction('https://needle.local', 'binoculars', 'wishlist').hypotheses[0]?.readiness).toBe('exploring');
+    expect(store.synthesisSnapshot().contextKey).toBe(contextKey);
+  });
+  it('does not inherit the old objective cart after correction or mask a newly attributed weaker save', () => {
+    const { store } = setup(); const original = save(store).hypotheses[0]!;
+    store.feedback(original.id, { action: 'confirm' }); commerce(store, 'cart', original.id);
+    const revised = save(store, { ...output, need: 'Watch birds from home.' }, 'I stay home').hypotheses[0]!;
+    expect(store.feedback(revised.id, { action: 'confirm' }).hypotheses[0]?.readiness).toBe('exploring');
+    expect(commerce(store, 'wishlist', revised.id).hypotheses[0]?.readiness).toBe('considering');
+    expect(store.retractAction('https://needle.local', 'binoculars', 'wishlist').hypotheses[0]?.readiness).toBe('exploring');
+  });
+  it('ignores broad topic overlap and excludes attributed external commerce from new source evidence', () => {
+    const { store } = setup();
+    store.record({ ...first, id: randomUUID(), tags: ['portable'] });
+    const ai = save(store).hypotheses[0]!; store.feedback(ai.id, { action: 'confirm' });
+    const contextKey = store.synthesisSnapshot().contextKey;
+    store.record({ id: randomUUID(), action: 'cart', sourceOrigin: 'https://needle.local', sourceTitle: 'Other purchase', summary: 'Portable lunch container', tags: ['portable'], provenance: 'observed', entityKey: 'unrelated' });
+    expect(store.getState().hypotheses[0]?.readiness).toBe('exploring');
+    expect(commerce(store, 'cart', ai.id, 'https://retailer.example').hypotheses[0]?.readiness).toBe('ready_to_review');
+    expect(store.synthesisSnapshot().contextKey).toBe(contextKey);
+    expect(store.synthesisSnapshot().observations).toHaveLength(2);
+  });
+});

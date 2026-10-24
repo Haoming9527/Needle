@@ -11,6 +11,7 @@ const weak = (value: IntentObservation) => value.action === 'dwell' || value.act
 const site = (origin: string) => new URL(origin).hostname.replace(/^www\./, '');
 const semanticKey = (value: IntentObservationInput) => `${sourceIdentity(value) ?? site(value.sourceOrigin)}:${value.entityKey ?? value.summary.trim().toLowerCase().replace(/\s+/g, ' ')}`;
 function sourceIdentity(value: IntentObservationInput): string | undefined {
+  if (value.recommendationHypothesisId) return undefined;
   const capture = value.capture;
   if (capture?.method === 'measured_cursor' && capture.environment === 'controlled_demo' && value.provenance === 'demo_fixture') {
     const source = DEMO_ATTENTION_SOURCES[capture.sourceId];
@@ -176,8 +177,11 @@ export class IntentStore {
     const stored = feedback.get(id);
     const response = matchesSupport(stored, evidenceIds) ? stored : undefined;
     const confirmed = response?.action === 'confirm';
-    const tags = new Set(supporting.flatMap(value => value.tags));
-    const explicit = observations.filter(value => value.tags.some(tag => tags.has(tag)) && ['wishlist', 'save', 'cart', 'group_interest'].includes(value.action));
+    // Read active events, not the strongest aggregate: an old cart must not
+    // override a new save attributed to a different confirmed objective.
+    const explicit = this.db.prepare('SELECT data FROM intent_events').all()
+      .map(row => parse<IntentObservation>(row.data))
+      .filter(value => value.recommendationHypothesisId === id && ['wishlist', 'save', 'cart', 'group_interest'].includes(value.action));
     const readiness: IntentHypothesis['readiness'] = !confirmed ? 'exploring' : explicit.some(value => value.action === 'cart') ? 'ready_to_review' : explicit.some(value => value.action === 'group_interest') ? 'conditional' : explicit.some(value => ['wishlist', 'save'].includes(value.action)) ? 'considering' : 'exploring';
     return { id, label: result.label!, question: result.question!, interest: confirmed ? 'confirmed' : 'tentative', status: response?.action === 'dismiss' ? 'dismissed' : 'active',
       readiness, evidencePoints: 0, evidenceIds, constraints: response?.constraints ?? saved.constraints, recommendationKey: 'contextual',
@@ -266,6 +270,7 @@ export class IntentStore {
     const next: IntentObservation = {
       ...first, id: previous?.id ?? first.id, createdAt: previous?.createdAt ?? first.createdAt,
       action: strongest.action,
+      recommendationHypothesisId: strongest.recommendationHypothesisId,
       sourceOrigin: strongest.sourceOrigin, sourceTitle: strongest.sourceTitle, summary: strongest.summary,
       ...(strongest.capture ? { capture: strongest.capture } : {}),
       collectionId: [...events].reverse().find(event => event.collectionId)?.collectionId,

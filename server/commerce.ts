@@ -73,7 +73,7 @@ export class CommerceStore {
       ...data,
       sourceOrigin: sourceOrigin(data.sourceOrigin),
       tags: input.tags ?? [],
-      generation: previous?.generation ?? randomUUID(),
+      generation: previous && previous.recommendationHypothesisId === data.recommendationHypothesisId ? previous.generation : randomUUID(),
       createdAt: previous?.createdAt ?? new Date(this.now()).toISOString(),
     };
     this.write("saved_inspiration", item);

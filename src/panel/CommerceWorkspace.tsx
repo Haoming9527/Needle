@@ -58,6 +58,20 @@ export function CommerceWorkspace({
       if (mounted.current) setError(e.message);
     });
   }, [refreshKey, refresh]);
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState !== 'visible' || mutation.current) return;
+      void refresh().catch((failure) => {
+        if (mounted.current) setError(failure instanceof Error ? failure.message : 'Saved items could not be refreshed.');
+      });
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [refresh]);
   async function mutate(path: string, body: unknown) {
     if (mutation.current) return;
     mutation.current = true;

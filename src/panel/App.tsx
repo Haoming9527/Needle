@@ -7,6 +7,7 @@ import { CropDialog } from './CropDialog';
 import { CheckoutDialog, type CheckoutSelection } from './CheckoutDialog';
 import { ProductResult } from './ProductResult';
 import { SearchProgress } from './SearchProgress';
+import { VoiceReply } from './VoiceReply';
 import { Cart, PurchaseHistory } from './SavedItems';
 import { NeedleMark, ProductImage } from './ui';
 import './styles.css';
@@ -171,7 +172,7 @@ export default function App() {
     if (!selectedOffer || !response || saveBusy) return;
     setSaveBusy(true); setSaveError('');
     try {
-      await apiRequest('/saved-items', { id: `product:${selectedOffer.id}`, label: selectedOffer.title, summary: selectedOffer.description, sourceOrigin: 'https://needle.local', sourceTitle: 'Needle recommendation', tags: contextTags(`${selectedOffer.title} ${selectedOffer.description}`), provenance: 'observed', offer: selectedOffer }, AbortSignal.timeout(8000));
+      await apiRequest('/saved-items', { sessionId: response?.sessionId, id: `product:${selectedOffer.id}`, label: selectedOffer.title, summary: selectedOffer.description, sourceOrigin: 'https://needle.local', sourceTitle: 'Needle recommendation', tags: contextTags(`${selectedOffer.title} ${selectedOffer.description}`), provenance: 'observed', offer: selectedOffer }, AbortSignal.timeout(8000));
       setExperienceVersion(value => value + 1); setToast('Saved to your wishlist'); setView('saved');
     } catch (error) { setSaveError(error instanceof Error ? error.message : 'Could not save this product.'); }
     finally { setSaveBusy(false); }
@@ -211,9 +212,11 @@ export default function App() {
           }}>
             <p id="clarification-question">{response.interpretation.clarification ?? 'Which item do you mean? Describe its position or appearance.'}</p>
             <label htmlFor="clarification-answer">Your answer</label>
-            <textarea id="clarification-answer" aria-describedby="clarification-question" rows={2} maxLength={1000} value={clarificationAnswer} onChange={event => setClarificationAnswer(event.target.value)} disabled={!!pending} placeholder="The black instrument on the left…" onKeyDown={event => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
-            }} />
+            <VoiceReply key={response.sessionId} sessionId={response.sessionId} disabled={!!pending} answer={clarificationAnswer} onTranscript={setClarificationAnswer}>
+              <textarea id="clarification-answer" aria-describedby="clarification-question" rows={2} maxLength={1000} value={clarificationAnswer} onChange={event => setClarificationAnswer(event.target.value)} disabled={!!pending} placeholder="The black instrument on the left…" onKeyDown={event => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
+              }} />
+            </VoiceReply>
             <div className="clarification-actions"><span>We'll keep your selected image.</span><button className="primary-button" type="submit" disabled={!clarificationAnswer.trim() || !!pending}>{pending === '/clarify' ? 'Finding…' : 'Send answer'}<ArrowUp size={15} /></button></div>
           </form>}
           {selectedOffer ? <ProductResult response={response} offer={selectedOffer} fallbackSrc={preview} pending={!!pending} onSelect={id => { setSelectedOfferId(id); setCheckout(null); }} onCheckout={setCheckout} /> : !response.interpretation.needsClarification && <div className="empty-state"><Search size={26} /><h2>No close match</h2><p>{response.webSearch?.message ?? 'Try a clearer crop, a brand, or a model name.'}</p><button className="secondary-button" onClick={() => setShowEdit(true)}>Edit description</button></div>}

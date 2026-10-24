@@ -38,3 +38,7 @@ Automated tests and the scripted UI fixture verify contracts, request ordering a
 With a configured key, rehearse at least: the two article sources; two unrelated subjects; ambiguous or conflicting observations; an ordinary need outside the prepared tags; the “I eat at home” correction; and source text containing embedded instructions. Check that references are accurate, explanations stay tentative, unsupported connections abstain, corrections respect the user's meaning, and zero product requests occur before confirmation. Record the model, prompt version, latency and actual result; do not replace an abstention with a scripted success while describing it as live AI.
 
 Broader cross-site capture, multi-user authentication, retailer sharing, learned intent calibration and live merchant purchasing remain outside this local prototype.
+
+## Recommendation attribution
+
+AI readiness uses commerce actions bound to the exact confirmed hypothesis, carried through the server-saved recommendation session. Wishlist saves resolve the canonical offer from that session; group interest inherits the saved item’s binding, and cart additions resolve it from the search session. A product from an earlier objective cannot make a corrected hypothesis appear ready to buy. This also works when a need has no prepared topic tags. Recommendation-derived commerce is excluded from fresh synthesis evidence.

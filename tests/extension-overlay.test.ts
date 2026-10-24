@@ -198,4 +198,30 @@ describe('automatic right-click workflow', () => {
     expect((await pending).error).toContain('cancelled');
     await vi.waitFor(() => expect(saved['needle.overlay.12']).toBeUndefined());
   });
+  it('binds voice requests to the pending question and returns a transcript without submitting it', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...result, interpretation: { needsClarification: true, clarification: 'Which item?' }, offers: [] }));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-voice' });
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ audioDataUrl: 'data:audio/mpeg;base64,AAAA' }));
+    await message({ type: 'NEEDLE_OVERLAY_SPEAK', requestId: 'selection-voice' });
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe('http://127.0.0.1:4318/voice/question');
+    expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string)).toEqual({ sessionId: result.sessionId });
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ text: 'The instrument' }));
+    expect(await message({ type: 'NEEDLE_OVERLAY_TRANSCRIBE', requestId: 'selection-voice', audioDataUrl: 'data:audio/webm;base64,AAAA' })).toEqual({ text: 'The instrument' });
+    expect(vi.mocked(fetch).mock.calls.map(call => call[0])).toEqual(['http://127.0.0.1:4318/discover', 'http://127.0.0.1:4318/voice/question', 'http://127.0.0.1:4318/voice/transcribe']);
+    expect(JSON.stringify(saved)).not.toContain('data:audio');
+    expect(saved['needle.overlay.12'].result.interpretation.needsClarification).toBe(true);
+  });
+  it('cancels speech without clearing the pending question and drops its late response', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...result, interpretation: { needsClarification: true, clarification: 'Which item?' }, offers: [] }));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-voice-stop' });
+    let release!: () => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(Response.json({ audioDataUrl: 'data:audio/mpeg;base64,AAAA' })); }));
+    const pending = message({ type: 'NEEDLE_OVERLAY_SPEAK', requestId: 'selection-voice-stop' });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    const signal = vi.mocked(fetch).mock.calls[1][1]!.signal!;
+    await message({ type: 'NEEDLE_OVERLAY_VOICE_CANCEL', requestId: 'selection-voice-stop' });
+    expect(signal.aborted).toBe(true); release();
+    expect((await pending).error).toContain('cancelled');
+    expect(saved['needle.overlay.12'].result.interpretation.needsClarification).toBe(true);
+  });
 });

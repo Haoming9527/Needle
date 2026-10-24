@@ -1,5 +1,7 @@
 import type { Offer } from "./types";
 export interface SavedItem {
+  /** Copied only from the verified recommendation session on the server. */
+  recommendationHypothesisId?: string;
   id: string;
   label: string;
   summary?: string;
