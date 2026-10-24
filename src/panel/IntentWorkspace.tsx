@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IntentFeedback, IntentHypothesis, IntentObservationInput, IntentState, RecommendationKey } from '../../shared/intent';
 import { apiRequest } from './api';
 import { intentSuggestionKey } from '../../shared/intent';
+import type { IntentCaptureMetadata } from '../../shared/attention';
 import type { SearchResponse } from '../../shared/types';
 import { ProductImage, formatMoney } from './ui';
 import { assetUrl } from './CheckoutDialog';
@@ -22,7 +23,7 @@ const recommendations: Record<RecommendationKey, { query: string; title: string;
   'work-calls': { query: 'headset for work calls', title: 'Explore a work-call headset', detail: 'Focus on everyday calls rather than a recording setup.' },
 };
 type Connection = {
-  observations: { observationId: string; sourceTitle: string; action: string; summary: string; provenance: string }[];
+  observations: { observationId: string; sourceTitle: string; action: string; summary: string; provenance: string; capture?: IntentCaptureMetadata }[];
   inferredNeed: { text: string; basis: 'hypothesis' | 'user_confirmed' | 'user_corrected' };
   uncertainty: string;
   question: string;
@@ -51,10 +52,11 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   const mutation = useRef(false);
   const mounted = useRef(true);
   const active = state?.hypotheses.find(item => item.status === 'active');
-  const hasRecipe = state?.observations.some(item => item.sourceOrigin === recipes[0].sourceOrigin);
-  const hasCycling = state?.observations.some(item => item.sourceOrigin === cycling[0].sourceOrigin);
+  const hasRecipe = state?.observations.some(item => item.sourceOrigin === recipes[0].sourceOrigin || item.capture?.sourceId === 'recipe-guide');
+  const hasCycling = state?.observations.some(item => item.sourceOrigin === cycling[0].sourceOrigin || item.capture?.sourceId === 'commute-guide');
   const recommendation = active ? recommendations[active.recommendationKey] : null;
   const query = recommendation ? `${recommendation.query}${active?.constraints ? `; ${active.constraints}` : ''}` : '';
+  const suggestionKey = active ? intentSuggestionKey(active) : '';
   const connection = (active as (IntentHypothesis & { connection?: Connection }) | undefined)?.connection;
   const observed = connection?.observations ?? (active?.evidenceIds ?? []).flatMap(id => (state?.observations ?? []).filter(item => item.id === id).map(item => ({ ...item, observationId: item.id })));
   const refresh = useCallback(async () => {
@@ -62,6 +64,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : 'Context could not be loaded.'); }
   }, []);
   useEffect(() => { mounted.current = true; void refresh(); return () => { mounted.current = false; request.current?.abort(); }; }, [refresh]);
+  useEffect(() => { const onFocus = () => { if (!mutation.current) void refresh(); }; window.addEventListener('focus', onFocus); return () => window.removeEventListener('focus', onFocus); }, [refresh]);
   // A change to evidence, consent or feedback invalidates the product and its in-flight response.
   useEffect(() => {
     request.current?.abort(); setProduct(null); setProductError(''); setProductBusy(false);
@@ -77,12 +80,12 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
       setProductError(controller.signal.aborted ? 'The product search took too long. You can retry.' : problem instanceof Error ? problem.message : 'The product could not be loaded.');
     }).finally(() => { clearTimeout(timeout); if (request.current === controller && mounted.current) setProductBusy(false); });
     return () => { request.current = null; controller.abort(); clearTimeout(timeout); };
-  }, [state, query, retry]);
+  }, [state?.consent, suggestionKey, query, retry]);
   function invalidateProduct() { const controller = request.current; request.current = null; controller?.abort(); setProduct(null); setProductBusy(false); setProductError(''); }
   async function mutate(path: string, body: unknown) {
     if (mutation.current) return;
     mutation.current = true; setBusy(true); setError(''); invalidateProduct();
-    try { const result = await apiRequest<IntentState>(path, body, AbortSignal.timeout(8000)); if (mounted.current) { setState(result); onChanged?.(); } }
+    try { const result = await apiRequest<IntentState>(path, body, AbortSignal.timeout(8000)); if (mounted.current) { setState(result); setRetry(value => value + 1); onChanged?.(); } }
     catch (problem) { if (mounted.current) setError(problem instanceof Error ? problem.message : 'Your change could not be saved.'); }
     finally { mutation.current = false; if (mounted.current) setBusy(false); }
   }
@@ -92,7 +95,7 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
     try {
       let result: IntentState | null = null;
       for (const event of events) result = await apiRequest<IntentState>('/intent/observations', { ...event, id: crypto.randomUUID() }, AbortSignal.timeout(8000));
-      if (mounted.current && result) { setState(result); onChanged?.(); }
+      if (mounted.current && result) { setState(result); setRetry(value => value + 1); onChanged?.(); }
     } catch (problem) { if (mounted.current) { setError(problem instanceof Error ? problem.message : 'The replay could not finish. Retry to continue.'); await refresh(); } }
     finally { mutation.current = false; if (mounted.current) setBusy(false); }
   }
@@ -102,10 +105,12 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
   return <section className="intent-workspace browsing-workspace" aria-label="From everyday browsing to a useful discovery">
     <div className="intent-eyebrow">Needle · Discover</div><h1>A useful connection.<br />Before a shopping search.</h1>
     <p className="intent-lead">Browse two everyday moments. See what might connect them. Decide whether it fits.</p>
-    <div className="browsing-mode"><strong>Simulated browsing</strong><span>Demo articles and synthetic attention signals. Your mouse is not being tracked.</span></div>
+    <div className="browsing-mode"><strong>Controlled browsing demo</strong><span>Measure a real cursor pause on two prepared reading pages. Timing is measured; article content and topic labels are demo context.</span></div>
     {error && <div className="intent-error" role="alert">{error} <button className="text-button" onClick={() => void refresh()} disabled={busy}>Retry</button></div>}
     {!state && !error && <p className="intent-empty" role="status">Loading your context…</p>}
-    {state && !state.consent && <div className="intent-consent"><h2>{state.observations.length ? 'Context memory is paused' : 'Try the browsing story'}</h2><p>With your permission, this walkthrough stores labelled demo observations locally. You can review, remove or reset them.</p><button className="primary-button" disabled={busy} onClick={() => void mutate('/intent/consent', { enabled: true })}>{state.observations.length ? 'Resume local memory' : 'Start browsing demo'}</button></div>}
+    {state && !state.consent && <div className="intent-consent"><h2>{state.observations.length ? 'Context memory is paused' : 'Review your browsing context'}</h2><p>Local memory stores the observations you choose to enable. Cursor attention has a separate opt-in on the reading pages. You can review, remove or reset the context.</p><button className="primary-button" disabled={busy} onClick={() => void mutate('/intent/consent', { enabled: true })}>{state.observations.length ? 'Resume local memory' : 'Enable local memory'}</button></div>}
+    <section className="measured-source-launch" aria-label="Read the controlled demo sources"><h2>Start with something ordinary.</h2><p>Open each reading page, enable cursor attention, and pause over the marked content. Return here to see what was recorded.</p><div className="measured-source-links"><a href="http://127.0.0.1:5173/recipe-demo.html" target="_blank" rel="noreferrer"><span>01 · Meal preparation</span><strong>Three lunches for the week</strong><small>Prepared source · local demo page ↗</small></a><a href="http://127.0.0.1:5173/commute-demo.html" target="_blank" rel="noreferrer"><span>02 · Bicycle commuting</span><strong>A calmer ride to work</strong><small>Prepared source · local demo page ↗</small></a></div><div className="measured-source-status" aria-live="polite">{(['recipe-guide', 'commute-guide'] as const).map(sourceId => { const observation = state?.observations.find(item => item.capture?.sourceId === sourceId); return <div key={sourceId}><i className={observation ? 'recorded' : ''} aria-hidden="true"/><strong>{sourceId === 'recipe-guide' ? 'Meal preparation' : 'Bicycle commuting'}</strong><span>{observation?.capture ? `${(observation.capture.dwellMs / 1000).toFixed(1)}s measured · ${observation.action === 'revisit' ? 'revisit' : 'first pause'}` : 'Waiting for a measured pause'}</span></div>; })}</div><p className="browsing-footnote">Both pages run on the same local origin. The two prepared source identities are separate demo contexts, not independent real websites.</p><button className="text-button" disabled={busy} onClick={() => void refresh()}>Refresh recorded context</button></section>
+    <details className="synthetic-replay-fallback"><summary>Use a synthetic replay instead</summary><p>Fallback only: Continue adds fixture observations. It does not measure your cursor.</p>
     {state?.consent && (!hasRecipe || !hasCycling) && <div className="browsing-stage">
       <p className="browsing-step">{hasRecipe ? '02 · Another everyday moment' : '01 · Something you were reading'}</p>
       {hasRecipe && <div className="browsing-previous"><span>Previously explored</span><strong>Three lunches you can prepare on Sunday</strong><small>recipes.example · synthetic signal recorded</small></div>}
@@ -114,17 +119,18 @@ export function IntentWorkspace({ onDiscover, onOpenResult, onChanged }: { onDis
       {!hasRecipe && <p className="browsing-footnote">No product request. No recommendation from a single clue.</p>}
     </div>}
     {hasRecipe && hasCycling && <div className="browsing-completed-sources"><ArticlePreview kind="recipe" compact /><ArticlePreview kind="commute" compact /></div>}
+    </details>
     {state && hasCycling && !active && <div className="intent-connection"><p className="intent-kicker">{dismissed ? 'Your choice, respected' : 'No connection yet'}</p><h2>{dismissed ? 'We’ll leave it there.' : 'The clues don’t yet support a need.'}</h2><p>{dismissed ? 'No product search will run for this dismissed suggestion. Reset the demo below if you want to try again.' : 'Review the stored observations below. Needle needs complementary evidence from different sources.'}</p></div>}
     {active && <article className="intent-connection browsing-reveal" aria-label="Needle’s connection">
       <p className="intent-kicker">{active.interest === 'confirmed' ? 'Checked with you' : '03 · A possible connection'}</p>
-      <div className="browsing-reasoning"><div><span>Observed in this {observed.some(item => item.provenance === 'demo_fixture') ? 'simulation' : 'context'}</span><ul>{observed.map(item => <li key={item.observationId}>{item.summary}<small>{item.sourceTitle} · {item.provenance === 'demo_fixture' ? 'synthetic signal' : 'observed action'}</small></li>)}</ul></div><div><span>{active.interest === 'confirmed' ? 'Your confirmed need' : 'Possible connection'}</span><p>{connection?.inferredNeed.text ?? (active.recommendationKey === 'home-meal-prep' ? 'You prepare meals to eat at home, so storage matters more than carrying lunch.' : 'You may prepare lunches ahead and carry them on your cycle commute.')}</p></div><div className="browsing-uncertainty"><span>What we don’t know</span><p>{connection?.uncertainty ?? 'You could eat at home or simply be browsing. These clues do not mean you want to buy anything.'}</p></div></div>
+      <div className="browsing-reasoning"><div><span>{observed.some(item => item.capture) ? 'Measured on controlled demo pages' : observed.some(item => item.provenance === 'demo_fixture') ? 'Observed in this simulation' : 'Observed context'}</span><ul>{observed.map(item => <li key={item.observationId}>{item.summary}<small>{item.sourceTitle} · {item.capture ? `${(item.capture.dwellMs / 1000).toFixed(1)}s measured · ${item.action} · prepared topic context` : item.provenance === 'demo_fixture' ? 'synthetic signal' : 'observed action'}</small></li>)}</ul></div><div><span>{active.interest === 'confirmed' ? 'Your confirmed need' : 'Possible connection'}</span><p>{connection?.inferredNeed.text ?? (active.recommendationKey === 'home-meal-prep' ? 'You prepare meals to eat at home, so storage matters more than carrying lunch.' : 'You may prepare lunches ahead and carry them on your cycle commute.')}</p></div><div className="browsing-uncertainty"><span>What we don’t know</span><p>{connection?.uncertainty ?? 'You could eat at home or simply be browsing. These clues do not mean you want to buy anything.'}</p></div></div>
       <h2>{active.interest === 'confirmed' ? active.label : connection?.question ?? 'Would a way to carry lunch on your commute be useful?'}</h2>
       {active.interest !== 'confirmed' && <label className="intent-constraint">Anything that matters? (optional)<input value={constraints} maxLength={300} onChange={event => setConstraints(event.target.value)} placeholder="Under KRW 30,000…" disabled={busy || !state?.consent} /></label>}
       <div className="intent-feedback">{active.interest !== 'confirmed' && <button className="primary-button" disabled={busy || !state?.consent} onClick={() => feedback({ action: 'confirm', ...(constraints.trim() ? { constraints: constraints.trim() } : {}) })}>Yes, that fits</button>}{active.recommendationKey === 'portable-lunch' && <button className="secondary-button" disabled={busy || !state?.consent} onClick={() => feedback({ action: 'correct', correction: 'home-meal-prep', ...(constraints.trim() ? { constraints: constraints.trim() } : {}) })}>I eat at home</button>}<button className="text-button" disabled={busy || !state?.consent} onClick={() => feedback({ action: 'dismiss' })}>Dismiss</button></div>
       {active.constraints && <p className="browsing-footnote">Your constraint: {active.constraints}</p>}
     </article>}
     {state?.consent && active?.interest === 'confirmed' && <section className="browsing-product" aria-label="One useful product"><p className="intent-eyebrow">04 · One useful possibility</p>{productBusy && <p role="status">Finding an option for your confirmed need…</p>}{productError && <div className="intent-error" role="alert">{productError}<button className="text-button" disabled={busy || productBusy} onClick={() => setRetry(value => value + 1)}>Retry product search</button></div>}{offer && product && <><ProductImage src={assetUrl(offer.imageUrl)} alt={offer.title} /><div className="browsing-product-copy"><span className="intent-badge">{offer.dataOrigin === 'sample' || offer.priceIsIllustrative ? 'Illustrative demo offer' : 'Retrieved listing · verify terms'}</span><h2>{offer.title}</h2><strong>{formatMoney(offer.price, offer.currency)}</strong><p>{connection?.productRationale ?? recommendation?.detail}</p><p className="browsing-footnote">{offer.reason} No purchase has been made.</p>{(onOpenResult || onDiscover) && <button className="secondary-button" onClick={() => onOpenResult ? onOpenResult(product) : onDiscover?.(query)}>View options →</button>}</div></>}</section>}
-    {state && <details className="intent-review"><summary>Review context & controls <span>{state.observations.length} {state.observations.length === 1 ? 'clue' : 'clues'}</span></summary><div className="intent-toolbar"><span className="intent-status">Local memory {state.consent ? 'on' : 'paused'}</span><button disabled={busy} onClick={() => void mutate('/intent/consent', { enabled: !state.consent })}>{state.consent ? 'Pause memory' : 'Resume memory'}</button></div>{active && <div className="intent-math"><p>Interest: {active.interest}. Purchase readiness: {readinessNames[active.readiness]}.</p><p>{active.explanation}</p><p>Heuristic points, not purchase probabilities: dwell/revisit 2; find 3; save/wishlist/group interest 4; cart 5. Repeated related events merge. Passive signals are capped per site. Complementary source topics and at least 4 points are required.</p></div>}<ul className="intent-evidence">{state.observations.map(item => <li key={item.id}><div className="intent-evidence-body"><strong>{item.sourceTitle}</strong><p>{item.summary}</p><small>{item.sourceOrigin} · {item.action} · {item.provenance === 'demo_fixture' ? 'synthetic demo signal' : 'observed action'}</small></div><button disabled={busy} aria-label={`Remove ${item.sourceTitle} observation`} onClick={() => void mutate(`/intent/observations/${encodeURIComponent(item.id)}/remove`, {})}>Remove</button></li>)}</ul><div className="intent-toolbar"><button disabled={busy} onClick={() => { setConstraints(''); void mutate('/intent/reset', {}); }}>Reset stored context</button><button disabled={busy} onClick={() => { invalidateProduct(); void refresh(); }}>Refresh</button></div></details>}
+    {state && <details className="intent-review"><summary>Review context & controls <span>{state.observations.length} {state.observations.length === 1 ? 'clue' : 'clues'}</span></summary><div className="intent-toolbar"><span className="intent-status">Local memory {state.consent ? 'on' : 'paused'}</span><button disabled={busy} onClick={() => void mutate('/intent/consent', { enabled: !state.consent })}>{state.consent ? 'Pause memory' : 'Resume memory'}</button></div>{active && <div className="intent-math"><p>Interest: {active.interest}. Purchase readiness: {readinessNames[active.readiness]}.</p><p>{active.explanation}</p><p>Heuristic points, not purchase probabilities: dwell/revisit 2; find 3; save/wishlist/group interest 4; cart 5. Repeated related events merge. Passive signals are capped per site. Complementary source topics and at least 4 points are required.</p></div>}<ul className="intent-evidence">{state.observations.map(item => <li key={item.id}><div className="intent-evidence-body"><strong>{item.sourceTitle}</strong><p>{item.summary}</p><small>{item.capture ? `${item.capture.actualOrigin} · ${(item.capture.dwellMs / 1000).toFixed(1)}s measured dwell · visit ${item.capture.visitOrdinal} · ${item.action} · prepared demo source ${item.capture.sourceId}` : `${item.sourceOrigin} · ${item.action} · ${item.provenance === 'demo_fixture' ? 'synthetic demo signal' : 'observed action'}`}</small></div><button disabled={busy} aria-label={`Remove ${item.sourceTitle} observation`} onClick={() => void mutate(`/intent/observations/${encodeURIComponent(item.id)}/remove`, {})}>Remove</button></li>)}</ul><div className="intent-toolbar"><button disabled={busy} onClick={() => { setConstraints(''); void mutate('/intent/reset', {}); }}>Reset stored context</button><button disabled={busy} onClick={() => { invalidateProduct(); setRetry(value => value + 1); void refresh(); }}>Refresh</button></div></details>}
     {busy && <p className="intent-pause-note" role="status">Updating local context…</p>}
   </section>;
 }

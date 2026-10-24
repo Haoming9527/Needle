@@ -9,6 +9,6 @@ export default defineConfig({
   build: {
     outDir: 'dist/extension',
     emptyOutDir: true,
-    rollupOptions: { input: { panel: resolve('panel.html'), demo: resolve('demo.html'), xDemo: resolve('x-demo.html') } },
+    rollupOptions: { input: { panel: resolve('panel.html'), demo: resolve('demo.html'), xDemo: resolve('x-demo.html'), recipeDemo: resolve('recipe-demo.html'), commuteDemo: resolve('commute-demo.html') } },
   },
 });
