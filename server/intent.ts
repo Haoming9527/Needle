@@ -8,6 +8,12 @@ const weak = (value: IntentObservation) => value.action === 'dwell' || value.act
 const site = (origin: string) => new URL(origin).hostname.replace(/^www\./, '');
 const semanticKey = (value: IntentObservationInput) => `${site(value.sourceOrigin)}:${value.entityKey ?? value.summary.trim().toLowerCase().replace(/\s+/g, ' ')}`;
 const parse = <T>(data: unknown): T => JSON.parse(String(data)) as T;
+interface StoredIntentFeedback extends IntentFeedback { supportingObservationIds?: string[] }
+function matchesSupport(feedback: StoredIntentFeedback | undefined, ids: string[]): boolean {
+  const bound = feedback?.supportingObservationIds;
+  return !!bound && bound.length === ids.length && [...bound].sort().every((id, index) => id === [...ids].sort()[index]);
+}
+
 
 /** Bounded reasoning templates keep captured actions distinct from proposed needs. */
 function connectionFor(first: IntentObservation, second: IntentObservation, key: IntentHypothesis['recommendationKey'], response?: IntentFeedback): IntentConnection {
@@ -73,7 +79,7 @@ export class IntentStore {
   getState(): IntentState {
     const consent = this.db.prepare("SELECT value FROM intent_settings WHERE key='consent'").get()?.value === 'true';
     const observations = this.db.prepare('SELECT data FROM intent_observations ORDER BY rowid').all().map(row => parse<IntentObservation>(row.data));
-    const feedback = new Map(this.db.prepare('SELECT id,data FROM intent_feedback').all().map(row => [String(row.id), parse<IntentFeedback>(row.data)]));
+    const feedback = new Map(this.db.prepare('SELECT id,data FROM intent_feedback').all().map(row => [String(row.id), parse<StoredIntentFeedback>(row.data)]));
     return { consent, observations, hypotheses: evaluateIntent(observations, feedback) };
   }
   setConsent(enabled: boolean): IntentState {
@@ -122,12 +128,17 @@ export class IntentStore {
     return this.getState();
   }
   feedback(id: string, input: IntentFeedback): IntentState {
-    if (!this.getState().hypotheses.some(value => value.id === id)) throw new ApiError(404, 'INTENT_NOT_FOUND', 'That interest is no longer available.');
+    const state = this.getState();
+    if (input.action !== 'dismiss' && !state.consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before confirming or correcting an interest.');
+    const hypothesis = state.hypotheses.find(value => value.id === id);
+    if (!hypothesis) throw new ApiError(404, 'INTENT_NOT_FOUND', 'That interest is no longer available.');
     if (input.action === 'correct' && !input.correction) throw new ApiError(400, 'CORRECTION_REQUIRED', 'Choose the corrected need.');
     if (input.action === 'correct' && ((id === 'lunch-on-the-move' && input.correction !== 'home-meal-prep') || (id === 'recording-setup' && input.correction !== 'work-calls'))) throw new ApiError(400, 'INVALID_CORRECTION', 'Choose a correction relevant to this interest.');
     const previous = this.db.prepare('SELECT data FROM intent_feedback WHERE id=?').get(id);
-    const prior = previous ? parse<IntentFeedback>(previous.data) : undefined;
-    const updated = { ...input, constraints: input.constraints ?? prior?.constraints };
+    const supportingObservationIds = hypothesis.connection.observations.map(value => value.observationId);
+    const stored = previous ? parse<StoredIntentFeedback>(previous.data) : undefined;
+    const prior = matchesSupport(stored, supportingObservationIds) ? stored : undefined;
+    const updated: StoredIntentFeedback = { ...input, constraints: input.constraints ?? prior?.constraints, supportingObservationIds };
     this.db.prepare('INSERT INTO intent_feedback VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(id, JSON.stringify(updated));
     return this.getState();
   }
@@ -150,7 +161,7 @@ export class IntentStore {
   }
 }
 
-export function evaluateIntent(observations: IntentObservation[], feedback = new Map<string, IntentFeedback>()): IntentHypothesis[] {
+export function evaluateIntent(observations: IntentObservation[], feedback = new Map<string, StoredIntentFeedback>()): IntentHypothesis[] {
   const candidates = [
     { id: 'lunch-on-the-move', label: 'Lunch on the move', question: 'Are you looking for a way to bring your meal prep on your cycle commute?', tags: ['meal-prep', 'cycle-commute'] as IntentTag[], recommendationKey: 'portable-lunch' as const },
     { id: 'recording-setup', label: 'A recording setup', question: 'Are you putting together a home recording setup?', tags: ['recording', 'audio'] as IntentTag[], recommendationKey: 'recording' as const },
@@ -171,7 +182,8 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
     }
     const evidencePoints = counted.reduce((sum, value) => sum + weights[value.action], 0);
     if (evidencePoints < 4) return [];
-    const response = feedback.get(candidate.id);
+    const stored = feedback.get(candidate.id);
+    const response = matchesSupport(stored, [first.id, second.id]) ? stored : undefined;
     const corrected = response?.action === 'correct' ? response.correction : undefined;
     const recommendationKey = corrected ?? candidate.recommendationKey;
     const label = corrected === 'home-meal-prep' ? 'Meal prep at home' : corrected === 'work-calls' ? 'Better work calls' : candidate.label;
