@@ -352,6 +352,37 @@ describe("explicit AI context synthesis routes", () => {
     expect(s.store.getState().synthesis?.result).toBeUndefined();
     expect(s.search).not.toHaveBeenCalled();
   });
+  it("does not persist a late provider result after the client cancels, even if the provider ignores abort", async () => {
+    const s = setup();
+    const key = seed(s.store);
+    const gate = barrier<SynthesisOutput>();
+    let aborted!: () => void;
+    const didAbort = new Promise<void>((resolve) => {
+      aborted = resolve;
+    });
+    s.synthesize.mockImplementation(async (_snapshot, signal) => {
+      signal.addEventListener("abort", aborted, { once: true });
+      gate.enter();
+      // Deliberately ignore cancellation, as a slow transport or provider may do.
+      return gate.result;
+    });
+    const save = vi.spyOn(s.store, "saveSynthesis");
+    const call = connect(s.app, key);
+    const pending = call.then(
+      () => undefined,
+      (error) => error,
+    );
+    await gate.entered;
+    call.abort();
+    await didAbort;
+    expect((await pending)?.code).toBe("ABORTED");
+    gate.release(output);
+    // Drain the provider and route continuations before checking persistence.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(save).not.toHaveBeenCalled();
+    expect(s.store.getState().synthesis?.result).toBeUndefined();
+    expect(s.search).not.toHaveBeenCalled();
+  });
   it("times out a blocked synthesis and aborts its signal without saving a result", async () => {
     const s = setup(true, 100);
     const key = seed(s.store);
