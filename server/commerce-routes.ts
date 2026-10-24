@@ -81,7 +81,11 @@ export function createCommerceRouter(
   router.post("/saved-items", (req, res, next) => {
     try {
       const item = store.saveItem(save.parse(req.body));
-      emit({ type: "save", eventId: `save:${item.id}`, savedItem: item });
+      emit({
+        type: "save",
+        eventId: `save:${item.id}:${item.generation}`,
+        savedItem: item,
+      });
       res.json({ item, items: store.getSavedItems() });
     } catch (error) {
       next(error);

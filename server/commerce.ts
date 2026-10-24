@@ -6,7 +6,7 @@ import type {
   SavedItem,
 } from "../shared/commerce.js";
 import { ApiError } from "./errors.js";
-export type SaveInput = Omit<SavedItem, "createdAt" | "tags"> & {
+export type SaveInput = Omit<SavedItem, "createdAt" | "tags" | "generation"> & {
   tags?: string[];
   collectionId?: string;
 };
@@ -56,6 +56,7 @@ export class CommerceStore {
     const item: SavedItem = {
       ...data,
       tags: input.tags ?? [],
+      generation: previous?.generation ?? randomUUID(),
       createdAt: previous?.createdAt ?? new Date(this.now()).toISOString(),
     };
     this.write("saved_inspiration", item);
@@ -145,6 +146,26 @@ export class CommerceStore {
         "INVALID_GROUP",
         "Use three participants and a positive target price and currency.",
       );
+    const existing = this.getCampaigns().find(
+      (campaign) =>
+        campaign.state !== "expired" &&
+        campaign.currency === currency &&
+        (campaign.savedItem.id === savedItemId ||
+          campaign.savedItem.offer?.id === savedItem.offer?.id),
+    );
+    if (existing) {
+      if (
+        existing.targetPrice !== targetPrice ||
+        existing.targetParticipants !== targetParticipants
+      ) {
+        throw new ApiError(
+          409,
+          "ACTIVE_GROUP_EXISTS",
+          "An active demo group already exists for this product. Open Group buys to review its terms.",
+        );
+      }
+      return existing;
+    }
     const campaign: GroupBuyCampaign = {
       id: randomUUID(),
       savedItem,

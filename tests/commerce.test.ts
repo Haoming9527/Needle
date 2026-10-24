@@ -148,6 +148,45 @@ describe("durable inspiration and group buys", () => {
     ).toBe(200);
     expect(signals.length).toBe(count);
   });
+  it("uses a stable generation for retries and a new generation after deletion in the same millisecond", async () => {
+    const { store } = setup(() => 0);
+    const signals: import("../shared/commerce").CommerceSignal[] = [];
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createCommerceRouter(store, (signal) => {
+        signals.push(signal);
+      }),
+    );
+    const payload = { id: "again", label: "Meal prep", provenance: "observed" };
+    await request(app).post("/saved-items").send(payload);
+    await request(app).post("/saved-items").send(payload);
+    expect(signals[0].eventId).toBe(signals[1].eventId);
+    const generation = store.getSavedItem("again").generation;
+    await request(app).post("/saved-items/again/remove").send({});
+    await request(app).post("/saved-items").send(payload);
+    expect(store.getSavedItem("again").generation).not.toBe(generation);
+    expect(signals.at(-1)?.eventId).not.toBe(signals[0].eventId);
+  });
+  it("deduplicates active groups by product and currency, and permits renewal after expiry", () => {
+    let now = 0;
+    const { store } = setup(() => now);
+    const first = store.createCampaign("item", 3, 25, "USD");
+    expect(store.createCampaign("item", 3, 25, "USD").id).toBe(first.id);
+    store.saveItem({
+      id: "alias",
+      label: offer.title,
+      offer,
+      provenance: "observed",
+    });
+    expect(store.createCampaign("alias", 3, 25, "USD").id).toBe(first.id);
+    expect(() => store.createCampaign("alias", 3, 24, "USD")).toThrow(
+      "active demo group",
+    );
+    expect(store.getCampaigns()).toHaveLength(1);
+    now = 86400000;
+    expect(store.createCampaign("item", 3, 25, "USD").id).not.toBe(first.id);
+  });
   it("optional scoring failures cannot fail saved commerce actions", async () => {
     const { store } = setup();
     const app = express();

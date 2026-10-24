@@ -9,6 +9,7 @@ export interface SavedItem {
   provenance: "observed" | "demo_fixture";
   offer?: Offer;
   createdAt: string;
+  generation: string;
 }
 export interface Collection {
   id: string;

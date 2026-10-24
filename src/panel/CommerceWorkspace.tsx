@@ -77,6 +77,15 @@ export function CommerceWorkspace({
       if (mounted.current) setBusy(false);
     }
   }
+  const hasActiveGroup = (item: SavedItem) =>
+    groups.some(
+      (group) =>
+        group.state !== "expired" &&
+        Date.parse(group.expiresAt) > Date.now() &&
+        group.currency === (item.offer?.currency ?? "USD") &&
+        (group.savedItem.id === item.id ||
+          group.savedItem.offer?.id === item.offer?.id),
+    );
   return (
     <section
       className="commerce-workspace"
@@ -203,6 +212,10 @@ export function CommerceWorkspace({
                       className="secondary-button"
                       disabled={busy}
                       onClick={() => {
+                        if (hasActiveGroup(item)) {
+                          setTab("groups");
+                          return;
+                        }
                         void mutate("/group-buys", {
                           savedItemId: item.id,
                           targetParticipants: 3,
@@ -214,7 +227,9 @@ export function CommerceWorkspace({
                         setTab("groups");
                       }}
                     >
-                      Start demo group
+                      {hasActiveGroup(item)
+                        ? "View demo group"
+                        : "Start demo group"}
                     </button>
                   </div>
                 )}
