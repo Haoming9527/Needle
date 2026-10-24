@@ -128,9 +128,11 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
     const corrected = response?.action === 'correct' ? response.correction : undefined;
     const recommendationKey = corrected ?? candidate.recommendationKey;
     const label = corrected === 'home-meal-prep' ? 'Meal prep at home' : corrected === 'work-calls' ? 'Better work calls' : candidate.label;
-    const readiness: IntentHypothesis['readiness'] = relevant.some(value => value.action === 'cart') ? 'ready_to_review'
-      : relevant.some(value => value.action === 'group_interest') ? 'conditional'
-      : relevant.some(value => ['save', 'wishlist'].includes(value.action)) ? 'considering' : 'exploring';
+    // A pledge for carrying lunch should not imply readiness for a corrected at-home need.
+    const readinessEvidence = relevant.filter(value => corrected === 'home-meal-prep' ? !value.tags.includes('portable') : corrected === 'work-calls' ? !value.tags.includes('recording') : true);
+    const readiness: IntentHypothesis['readiness'] = readinessEvidence.some(value => value.action === 'cart') ? 'ready_to_review'
+      : readinessEvidence.some(value => value.action === 'group_interest') ? 'conditional'
+      : readinessEvidence.some(value => ['save', 'wishlist'].includes(value.action)) ? 'considering' : 'exploring';
     const fixture = counted.some(value => value.provenance === 'demo_fixture');
     return [{ id: candidate.id, label, question: candidate.question, recommendationKey, readiness,
       interest: response?.action === 'confirm' || corrected ? 'confirmed' : 'tentative',

@@ -4,6 +4,17 @@
 
 A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. Needle searches across stores, using 18 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
 
+
+## Connected discovery demo (v0.5)
+
+Open **Discover** to try the new recipe + cycling-to-work scenario. Two explicitly labelled browsing replays produce a tentative need before any shopping request. Confirm or correct it to compare portable lunch containers or home food storage. The rule-based context score and product search are separate; no background cursor tracking is represented.
+
+**Saved** supports durable inspiration, product wishlists, named collections, and conditional group-buy simulations. Each group contains two labelled synthetic participants; joining expresses a price condition and never creates an order. **Find**, **Cart**, and **History** retain the existing flow, with visibly simulated checkout.
+
+The deterministic connected demo runs without provider keys. Existing AI vision and web search still use backend credentials when configured. For isolated testing without touching your usual database, set `DATABASE_PATH=.local/connected-demo-review.sqlite`.
+
+See [the connected demo walkthrough and architecture](docs/CONNECTED_DEMO.md).
+
 ## Run locally
 
 Requires Node.js 22.13+ (tested on 26.12.1).
@@ -54,14 +65,14 @@ npm run build
 
 1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
 2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.4.1**, then refresh the webpage to remove the previous content script.
-4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
-5. Needle captures a small region around the cursor and automatically searches. Its two shopping actions become available when a result and any required variant are ready.
+3. Check that Chrome shows **version 0.5.0**, then refresh the webpage to remove the previous content script.
+4. Right-click on an ordinary **HTTP/HTTPS webpage**. Choose **Save inspiration** to retain bounded selected context, or **Find products** to capture and identify the object.
+5. Only **Find products** captures a small region around the cursor and searches. Buy and Add to cart appear when a result is ready. Saving inspiration does not require a screenshot or product match.
 6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
 
 Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. Ambiguous selections can be cropped or described in the panel.
 
-If Chrome still shows only its normal menu, verify version 0.4.1, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+If Chrome still shows only its normal menu, verify version 0.5.0, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
 
 When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
 

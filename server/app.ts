@@ -67,16 +67,24 @@ export function createApp(options: AppOptions = {}) {
   app.use(express.json({ limit: '6mb' }));
   app.use(createIntentRouter(intent));
   app.use(createCommerceRouter(commerce, signal => {
-    if (!intent.getState().consent) return;
     const item = signal.savedItem;
     const origin = item.sourceOrigin ?? 'https://needle.local';
     const entityKey = item.offer?.id ?? item.id;
-    const tags = [...new Set([...item.tags, ...contextTags(`${item.label} ${item.summary ?? ''}`)])].filter((tag): tag is typeof intentTags[number] => (intentTags as readonly string[]).includes(tag));
-    if (!tags.length) return;
     if (signal.type === 'group_buy_withdraw') { intent.retractAction(origin, entityKey, 'group_interest'); return; }
     if (signal.type === 'save_remove') { intent.retractAction(origin, entityKey, 'save'); intent.retractAction(origin, entityKey, 'wishlist'); return; }
+    if (!intent.getState().consent) return;
+    const tags = [...new Set([...item.tags, ...contextTags(`${item.label} ${item.summary ?? ''}`)])].filter((tag): tag is typeof intentTags[number] => (intentTags as readonly string[]).includes(tag));
+    if (!tags.length) return;
     intent.record({ id: signal.eventId, action: signal.type === 'group_buy_interest' ? 'group_interest' : item.offer ? 'wishlist' : 'save', sourceOrigin: origin, sourceTitle: (item.sourceTitle ?? item.label).slice(0, 200), summary: (item.summary ?? item.label).slice(0, 500), tags, provenance: item.provenance, entityKey });
   }));
+
+  function cartSignal(offer: SearchResponse['offers'][number], action: 'add' | 'remove'): void {
+    // Product recommendations are local commerce evidence, never a new external browsing source.
+    if (action === 'remove') { intent.retractAction('https://needle.local', offer.id, 'cart'); return; }
+    if (!intent.getState().consent) return;
+    const tags = contextTags(`${offer.title} ${offer.description}`).filter((tag): tag is typeof intentTags[number] => (intentTags as readonly string[]).includes(tag));
+    if (tags.length) intent.record({ id: randomUUID(), action: 'cart', sourceOrigin: 'https://needle.local', sourceTitle: 'Needle cart', summary: offer.title.slice(0, 500), tags, provenance: 'observed', entityKey: offer.id });
+  }
 
   function checkLive(mode: string): void {
     if (mode === 'live' && liveMissing.length) throw new ApiError(503, 'LIVE_NOT_CONFIGURED', `Live discovery needs ${liveMissing.join(' and ')} in .env. You can use the prepared catalog meanwhile.`);
@@ -132,10 +140,10 @@ export function createApp(options: AppOptions = {}) {
   app.get('/cart', (_req, res) => res.json({ items: database.cart() }));
   app.get('/orders', (_req, res) => res.json({ orders: database.history() }));
   app.post('/cart', (req, res, next) => {
-    try { const body = cartSchema.parse(req.body); res.json({ items: database.addCart(body.sessionId, body.offerId, body.variant, body.quantity) }); } catch (error) { next(error); }
+    try { const body = cartSchema.parse(req.body); const items = database.addCart(body.sessionId, body.offerId, body.variant, body.quantity); const item = items.find(value => value.offer.id === body.offerId); if (item) cartSignal(item.offer, 'add'); res.json({ items }); } catch (error) { next(error); }
   });
   app.post('/cart/:id/remove', (req, res, next) => {
-    try { res.json({ items: database.removeCart(z.string().uuid().parse(req.params.id)) }); } catch (error) { next(error); }
+    try { const id = z.string().uuid().parse(req.params.id); const previous = database.cart().find(value => value.id === id); const items = database.removeCart(id); if (previous && !items.some(value => value.offer.id === previous.offer.id)) cartSignal(previous.offer, 'remove'); res.json({ items }); } catch (error) { next(error); }
   });
   app.post('/cart/:id/quantity', (req, res, next) => {
     try { const { quantity } = z.object({ quantity: z.number().int().min(1).max(99) }).strict().parse(req.body); res.json({ items: database.quantity(z.string().uuid().parse(req.params.id), quantity) }); } catch (error) { next(error); }
@@ -174,7 +182,9 @@ export function createApp(options: AppOptions = {}) {
   app.post(['/orders', '/demo-orders'], (req, res, next) => {
     try {
       const body = orderSchema.parse(req.body);
+      const priorCart = body.cartItemId ? database.cart().find(value => value.id === body.cartItemId) : null;
       const { order, created } = database.purchase(body);
+      if (created && priorCart && !database.cart().some(value => value.offer.id === priorCart.offer.id)) cartSignal(priorCart.offer, 'remove');
       return res.status(created ? 201 : 200).json(order);
     } catch (error) { next(error); }
   });
