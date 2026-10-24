@@ -10,6 +10,7 @@ const runtimeId = 'a'.repeat(32);
 const listeners = new Set<Listener>();
 const counts = { discover: 0, clarify: 0, cart: 0, buy: 0, cancel: 0, siteMenu: 0 };
 const askQuestion = new URLSearchParams(location.search).has('clarify');
+const searchDelay = new URLSearchParams(location.search).has('loading') ? 30_000 : 800;
 const cancelled = new Set<string>();
 const selections = new Map<string, SearchResponse>();
 const status = document.getElementById('bridge-status')!;
@@ -52,7 +53,7 @@ async function sendMessage(message: Message): Promise<unknown> {
     await emit('NEEDLE_CAPTURE_FINISHED', id);
     if (prepared.error) { report(prepared.error); return prepared; }
     report('Mock result pending. The three controls should already be visible.', { text: prepared.text ?? null, geometry: prepared.geometry });
-    await new Promise(resolve => window.setTimeout(resolve, 800));
+    await new Promise(resolve => window.setTimeout(resolve, searchDelay));
     if (cancelled.has(id)) return { error: 'Cancelled.' };
     const result = sample(prepared.text);
     if (askQuestion) {

@@ -16,6 +16,7 @@ class Style {
   get visibility() { return this.values.get('visibility'); }
   get left() { return this.values.get('left'); }
   get top() { return this.values.get('top'); }
+  getPropertyValue(key: string) { return this.values.get(key); }
 }
 class FakeElement {
   parentElement: FakeElement | null = null;
@@ -70,6 +71,7 @@ function click(target: FakeElement, extra: Record<string, unknown> = {}) {
   return { target, clientX: 200, clientY: 200, composedPath: () => path, isTrusted: true, shiftKey: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(), ...extra } as unknown as MouseEvent;
 }
 function popup() { return root.children.find(child => !!child.shadow)!; }
+function targetMarker(host = popup()) { return host.shadow!.querySelector('[data-needle-target="true"]')!; }
 function contentMessage(type: string, requestId: string) {
   return new Promise<any>(resolve => { for (const listener of runtimeEvents) listener({ type, requestId }, { id: extensionId }, resolve); });
 }
@@ -142,6 +144,9 @@ describe('content-script action toolbar', () => {
     const buttons = popup().shadow!.querySelectorAll('button');
     expect(buttons.map(button => button.textContent)).toEqual(['Buy', 'Add to cart', '×']);
     expect(buttons.map(button => button.disabled)).toEqual([true, true, false]);
+    expect(targetMarker().hidden).toBe(false);
+    expect(targetMarker().getAttribute('aria-hidden')).toBe('true');
+    expect([targetMarker().style.left, targetMarker().style.top]).toEqual(['200px', '200px']);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_DISCOVER' }));
   });
   it('hides the toolbar only during screenshot preparation and keeps its crop bounded', async () => {
@@ -149,14 +154,19 @@ describe('content-script action toolbar', () => {
     const requestId = sendMessage.mock.calls[0][0].requestId;
     const preparation = contentMessage('NEEDLE_PREPARE_CAPTURE', requestId);
     expect(popup().style.visibility).toBe('hidden');
+    // The marker shares the hidden host, keeping it out of the captured pixels.
+    expect(popup().shadow!.children).toContain(targetMarker());
     const response = await preparation;
     expect(mediaCrop(response.geometry)).toMatchObject({ width: 320, height: 320 });
     await contentMessage('NEEDLE_CAPTURE_FINISHED', requestId);
     expect(popup().style.visibility).toBe('visible');
+    expect(targetMarker().hidden).toBe(false);
   });
   it('cancels before discovery completes and ignores late results', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    const marker = targetMarker();
     popup().shadow!.querySelectorAll('button')[2].emit('click');
+    expect(marker.hidden).toBe(true);
     expect(root.children).toHaveLength(0);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
     finishDiscovery({ result: { offers: [], interpretation: {} } });
@@ -184,6 +194,8 @@ describe('content-script action toolbar', () => {
     await Promise.resolve();
     const host = popup(), form = host.shadow!.querySelector('form')!, input = form.querySelector('input')!;
     expect(form).toBeTruthy();
+    expect(form.querySelectorAll('button').map(button => button.getAttribute('aria-label') || button.textContent)).toEqual(['Answer by voice', 'Search']);
+    expect(targetMarker(host).hidden).toBe(true);
     input.value = 'The black instrument on the wall'; input.emit('input');
     let finishAnswer!: (value: unknown) => void;
     sendMessage.mockImplementationOnce(() => new Promise(resolve => { finishAnswer = resolve; }));
@@ -191,12 +203,26 @@ describe('content-script action toolbar', () => {
     expect(event.preventDefault).toHaveBeenCalled();
     expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_CLARIFY')).toEqual([[{ type: 'NEEDLE_OVERLAY_CLARIFY', requestId, answer: 'The black instrument on the wall' }]]);
     expect(input.disabled).toBe(true);
+    expect(targetMarker(host).hidden).toBe(false);
     finishAnswer({ result: searchResult() }); await Promise.resolve();
     expect(popup()).toBe(host);
     expect(host.shadow!.querySelector('form')).toBeNull();
     expect(host.shadow!.querySelector('img')!.src).toBe('data:image/jpeg;base64,b3JpZ2luYWw=');
     expect(host.shadow!.querySelector('h2')!.textContent).toBe('Black F-style mandolin');
     expect(host.shadow!.querySelectorAll('button')[0].disabled).toBe(false);
+    expect(targetMarker(host).hidden).toBe(true);
+  });
+  it('keeps the question and typed answer when microphone access is unavailable', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    finishDiscovery({ result: searchResult(true) }); await Promise.resolve();
+    const form = popup().shadow!.querySelector('form')!, input = form.querySelector('input')!;
+    input.value = 'The instrument on the left'; input.emit('input');
+    form.querySelector('[aria-label="Answer by voice"]')!.emit('click');
+    await Promise.resolve();
+    expect(input.value).toBe('The instrument on the left');
+    expect(form.querySelectorAll('p').some(p => p.textContent.includes('Type your answer'))).toBe(true);
+    expect(popup().shadow!.querySelectorAll('p').some(p => p.textContent === 'Do you mean the black instrument or the shirt?')).toBe(true);
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'NEEDLE_OVERLAY_CLARIFY')).toBe(false);
   });
   it('preserves an answer for retry after a failed clarification and ignores completion after cancellation', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
@@ -206,22 +232,34 @@ describe('content-script action toolbar', () => {
     sendMessage.mockResolvedValueOnce({ error: 'Please retry.' });
     form.emit('submit', { preventDefault: vi.fn() }); await Promise.resolve();
     expect(input.value).toBe('The instrument'); expect(input.disabled).toBe(false);
-    expect(form.querySelector('button')!.disabled).toBe(false);
+    expect(form.querySelectorAll('button').find(button => button.type === 'submit')!.disabled).toBe(false);
+    expect(targetMarker(host).hidden).toBe(true);
     let finishAnswer!: (value: unknown) => void;
     sendMessage.mockImplementationOnce(() => new Promise(resolve => { finishAnswer = resolve; }));
     form.emit('submit', { preventDefault: vi.fn() });
+    expect(targetMarker(host).hidden).toBe(false);
     host.shadow!.querySelectorAll('button')[2].emit('click');
+    expect(targetMarker(host).hidden).toBe(true);
     finishAnswer({ result: searchResult() }); await Promise.resolve();
     expect(root.children).toHaveLength(0);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
   });
-  it('keeps its anchor unchanged through loading, a question, and a taller result near a viewport edge', async () => {
+  it.each([
+    { width: 1280, x: 1250, y: 690, left: 926, top: 352, maxHeight: 360 },
+    { width: 360, x: 180, y: 300, left: 48, top: 320, maxHeight: 392 },
+    { width: 360, x: 180, y: 500, left: 48, top: 120, maxHeight: 360 },
+  ])('keeps the popup clear of the cursor and stable as content grows at $width px / $x,$y', async ({ width, x, y, left, top, maxHeight }) => {
     vi.useFakeTimers();
-    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div'), { clientX: 1250, clientY: 690 }));
+    vi.stubGlobal('innerWidth', width);
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div'), { clientX: x, clientY: y }));
     const host = popup(), anchor = [host.style.left, host.style.top];
-    expect(anchor).toEqual(['968px', '352px']);
+    expect(anchor).toEqual([`${left}px`, `${top}px`]);
+    expect(host.style.getPropertyValue('--needle-max-height')).toBe(`${maxHeight}px`);
+    const marker = targetMarker(host);
+    expect([marker.style.left, marker.style.top]).toEqual([`${x}px`, `${y}px`]);
     host.box.height = 120; vi.advanceTimersByTime(15000);
     expect([host.style.left, host.style.top]).toEqual(anchor);
+    expect([marker.style.left, marker.style.top]).toEqual([`${x}px`, `${y}px`]);
     finishDiscovery({ result: searchResult(true) }); await Promise.resolve();
     host.box.height = 310;
     expect([host.style.left, host.style.top]).toEqual(anchor);

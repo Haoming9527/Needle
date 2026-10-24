@@ -3,6 +3,7 @@ import { cropFocus, mediaCrop, sameGeometry, type CropBox, type MediaGeometry } 
 
 const API = 'http://127.0.0.1:4318';
 const active = new Map<number, { id: string; controller: AbortController }>();
+const voiceActive = new Map<number, { id: string; controller: AbortController }>();
 const cacheWrites = new Map<number, Promise<void>>();
 const cacheKey = (tabId: number) => `needle.overlay.${tabId}`;
 interface Prepared { geometry: MediaGeometry; text?: string; context?: string }
@@ -24,7 +25,7 @@ function senderTab(sender: chrome.runtime.MessageSender): chrome.tabs.Tab | null
   if (sender.tab.url !== sender.url) return null;
   return sender.tab;
 }
-async function request<T>(path: '/discover' | '/clarify' | '/cart', body: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(path: '/discover' | '/clarify' | '/cart' | '/voice/question' | '/voice/transcribe', body: unknown, signal?: AbortSignal): Promise<T> {
   const requestSignal = signal ?? AbortSignal.timeout(10_000);
   let response: Response;
   try { response = await fetch(`${API}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: requestSignal }); }
@@ -111,6 +112,7 @@ async function withSearch<T>(tab: chrome.tabs.Tab, requestId: string, work: (sig
 }
 async function discover(tab: chrome.tabs.Tab, requestId: string): Promise<{ result: SearchResponse; imageDataUrl: string }> {
   const tabId = tab.id!;
+  voiceActive.get(tabId)?.controller.abort();
   try {
     return await withSearch(tab, requestId, async (signal, assertCurrent) => {
     await withCache(tabId, async () => {
@@ -149,6 +151,7 @@ async function cached(tab: chrome.tabs.Tab, requestId: string): Promise<Cached> 
   return value;
 }
 async function clarify(tab: chrome.tabs.Tab, requestId: string, answer: string): Promise<{ result: SearchResponse; imageDataUrl?: string }> {
+  voiceActive.get(tab.id!)?.controller.abort();
   return withSearch(tab, requestId, async (signal, assertCurrent) => {
     const value = await cached(tab, requestId);
     assertCurrent();
@@ -166,12 +169,41 @@ async function clarify(tab: chrome.tabs.Tab, requestId: string, answer: string):
     return { result, imageDataUrl: selection.imageDataUrl };
   });
 }
+async function voiceRequest(tab: chrome.tabs.Tab, requestId: string, audioDataUrl?: string): Promise<{ audioDataUrl?: string; text?: string }> {
+  const tabId = tab.id!;
+  voiceActive.get(tabId)?.controller.abort();
+  const controller = new AbortController();
+  voiceActive.set(tabId, { id: requestId, controller });
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  const onUpdated = (id: number, change: { url?: string; status?: string }) => { if (id === tabId && (change.url || change.status === 'loading')) controller.abort(); };
+  chrome.tabs.onUpdated.addListener(onUpdated);
+  const assertCurrent = () => { if (controller.signal.aborted || voiceActive.get(tabId)?.controller !== controller) throw new Error('Voice request cancelled.'); };
+  try {
+    const value = await cached(tab, requestId);
+    assertCurrent();
+    if (!value.result.interpretation.needsClarification) throw new Error('There is no question to answer.');
+    const response = audioDataUrl === undefined
+      ? await request<{ audioDataUrl: string }>('/voice/question', { sessionId: value.result.sessionId }, controller.signal)
+      : await request<{ text: string }>('/voice/transcribe', { sessionId: value.result.sessionId, audioDataUrl }, controller.signal);
+    assertCurrent();
+    return response;
+  } finally {
+    clearTimeout(timer);
+    chrome.tabs.onUpdated.removeListener(onUpdated);
+    if (voiceActive.get(tabId)?.controller === controller) voiceActive.delete(tabId);
+  }
+}
 export function installOverlayMessages(): void {
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const tab = senderTab(sender);
     if (!tab || !message || typeof message.requestId !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(message.requestId)) return;
+    if (message.type === 'NEEDLE_OVERLAY_VOICE_CANCEL') {
+      if (voiceActive.get(tab.id!)?.id === message.requestId) voiceActive.get(tab.id!)?.controller.abort();
+      respond({ ok: true }); return;
+    }
     if (message.type === 'NEEDLE_OVERLAY_CANCEL') {
       if (active.get(tab.id!)?.id === message.requestId) active.get(tab.id!)?.controller.abort();
+      if (voiceActive.get(tab.id!)?.id === message.requestId) voiceActive.get(tab.id!)?.controller.abort();
       void withCache(tab.id!, async () => {
         const key = cacheKey(tab.id!);
         const value = (await chrome.storage.session.get(key))[key] as Cached | undefined;
@@ -190,6 +222,14 @@ export function installOverlayMessages(): void {
       }
       if (active.has(tab.id!)) { respond({ error: 'A search is already running. Please wait for its answer.' }); return; }
       void clarify(tab, message.requestId, message.answer.trim()).then(respond).catch(error => respond({ error: error instanceof Error ? error.message : 'Could not use your answer. Try again.' }));
+      return true;
+    }
+    if (message.type === 'NEEDLE_OVERLAY_SPEAK' || message.type === 'NEEDLE_OVERLAY_TRANSCRIBE') {
+      if (message.type === 'NEEDLE_OVERLAY_TRANSCRIBE' && (typeof message.audioDataUrl !== 'string' || message.audioDataUrl.length > 4_000_000 || !/^data:audio\//.test(message.audioDataUrl))) {
+        respond({ error: 'Record a short audio reply and try again.' }); return;
+      }
+      void voiceRequest(tab, message.requestId, message.type === 'NEEDLE_OVERLAY_TRANSCRIBE' ? message.audioDataUrl : undefined)
+        .then(respond).catch(error => respond({ error: error instanceof Error ? error.message : 'Voice is unavailable. Type your answer instead.' }));
       return true;
     }
     if (!['NEEDLE_OVERLAY_BUY', 'NEEDLE_OVERLAY_CART'].includes(message.type) || typeof message.offerId !== 'string' || (message.variant !== undefined && typeof message.variant !== 'string')) return;

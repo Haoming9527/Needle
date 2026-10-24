@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
-import type { DiscoverRequest, DiscoveryMode, Interpretation, Preferences, SearchResponse } from '../shared/types.js';
+import type { DiscoverRequest, DiscoveryMode, Interpretation, Preferences, SearchResponse, Selection } from '../shared/types.js';
 import { agentAvailable, getConfig, missingKeys, type ServerConfig } from './config.js';
 import { ApiError } from './errors.js';
 import { publicImageUrl } from './evidence.js';
@@ -12,6 +12,8 @@ import { budgetFromInstruction } from './preferences.js';
 import type { ProductProvider, ProviderResult } from './provider.js';
 import { SampleProvider } from './sample-provider.js';
 import { WebDemoProvider } from './web-demo-provider.js';
+import { decideProducts } from './product-decision.js';
+import { installVoiceRoutes } from './voice.js';
 
 const preferenceSchema = z.object({ budget: z.number().finite().nonnegative().max(1_000_000_000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional() }).strict();
 const imageDataSchema = z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/);
@@ -31,7 +33,7 @@ const clarifySchema = z.object({ sessionId: z.string().uuid(), answer: z.string(
 const orderSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), confirmationId: z.string().min(8).max(100), confirmed: z.literal(true), cartItemId: z.string().uuid().optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 const cartSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 
-export interface AppOptions { config?: ServerConfig; sampleProvider?: ProductProvider; liveProvider?: ProductProvider; webDemoProvider?: ProductProvider }
+export interface AppOptions { config?: ServerConfig; sampleProvider?: ProductProvider; liveProvider?: ProductProvider; webDemoProvider?: ProductProvider; decisionProvider?: typeof decideProducts }
 
 export function createApp(options: AppOptions = {}) {
   const config = options.config ?? getConfig();
@@ -42,6 +44,7 @@ export function createApp(options: AppOptions = {}) {
   const catalog = new SampleProvider(() => database.catalog());
   const providers = { sample: options.sampleProvider ?? (agentAvailable(config) ? new CatalogAgentProvider(config, catalog) : catalog), live: options.liveProvider ?? new LiveProvider(config) };
   const webDemoProvider = options.webDemoProvider ?? new WebDemoProvider(config);
+  const decide = options.decisionProvider ?? decideProducts;
   const liveMissing = missingKeys(config);
 
   app.use((req, res, next) => {
@@ -61,13 +64,19 @@ export function createApp(options: AppOptions = {}) {
     next();
   });
   app.use(express.json({ limit: '6mb' }));
+  installVoiceRoutes(app, config, database);
 
   function checkLive(mode: string): void {
     if (mode === 'live' && liveMissing.length) throw new ApiError(503, 'LIVE_NOT_CONFIGURED', `Live discovery needs ${liveMissing.join(' and ')} in .env. You can use the prepared catalog meanwhile.`);
   }
 
-  async function searchWithFallback(mode: DiscoveryMode, item: Interpretation, preferences: Preferences, signal: AbortSignal, instruction = ''): Promise<ProviderResult & Pick<SearchResponse, 'discoverySource' | 'webSearch'>> {
-    const primary = await providers[mode].search(item, preferences, signal, instruction);
+  async function searchWithFallback(mode: DiscoveryMode, item: Interpretation, preferences: Preferences, signal: AbortSignal, instruction = '', selection?: Selection): Promise<ProviderResult & Pick<SearchResponse, 'discoverySource' | 'webSearch' | 'decision'>> {
+    const rank = async (result: ProviderResult): Promise<ProviderResult & Pick<SearchResponse, 'decision'>> => {
+      if (item.needsClarification || !result.offers.length) return result;
+      const ranked = await decide(config, { item, preferences, instruction, selection, offers: result.offers }, signal);
+      return { ...ranked, warnings: [...result.warnings, ...ranked.warnings] };
+    };
+    const primary = await rank(await providers[mode].search(item, preferences, signal, instruction));
     if (mode === 'live') return { ...primary, discoverySource: 'exa' };
     if (primary.offers.length || item.needsClarification) return { ...primary, discoverySource: 'catalog' };
 
@@ -77,13 +86,15 @@ export function createApp(options: AppOptions = {}) {
     }
 
     try {
-      // Reuse the already identified object and this request's deadline; do not send the image through vision again.
+      // Retrieval reuses the identified object; Decisions compares these candidates
+      // against the original focused selection within the same request deadline.
       const web = await webDemoProvider.search(item, preferences, signal, instruction);
       const offers = database.cacheWebOffers(item, web.offers).filter(offer => preferences.budget === undefined || (offer.currency === preferences.currency && offer.price !== null && offer.price <= preferences.budget));
       const message = offers.length
         ? 'Found product references with Exa and added them to your demo catalog.'
         : 'Exa searched across stores but found no matching product references. Try a broader description or a brand/model name.';
-      return { offers, warnings: [...primary.warnings, message, ...web.warnings], discoverySource: 'exa', webSearch: { status: offers.length ? 'used' : 'empty', message } };
+      const ranked = await rank({ offers, warnings: [...primary.warnings, message, ...web.warnings] });
+      return { ...ranked, discoverySource: 'exa', webSearch: { status: offers.length ? 'used' : 'empty', message: ranked.decision?.status === 'no_match' ? 'Products were found, but none was a suitable match for your selection. Try a clearer description or a different crop.' : message } };
     } catch (error) {
       if (signal.aborted) throw new ApiError(504, 'TIMEOUT', 'This search took too long. Try again or narrow your description.');
       const detail = error instanceof ApiError ? error.message : 'The web search service could not be reached. Please retry.';
@@ -112,7 +123,7 @@ export function createApp(options: AppOptions = {}) {
     } finally { if (timer) clearTimeout(timer); req.removeListener('aborted', disconnect); res.removeListener('close', responseClosed); }
   }
 
-  app.get('/health', (_req, res) => res.json({ status: 'ok', defaultMode: config.defaultMode, liveAvailable: !liveMissing.length, missingKeys: liveMissing, model: config.model, agentAvailable: agentAvailable(config), agentMode: agentAvailable(config) ? 'ai' : 'catalog', database: 'sqlite' }));
+  app.get('/health', (_req, res) => res.json({ status: 'ok', defaultMode: config.defaultMode, liveAvailable: !liveMissing.length, missingKeys: liveMissing, model: config.model, agentAvailable: agentAvailable(config), agentMode: agentAvailable(config) ? 'ai' : 'catalog', voiceAvailable: !!config.openAiKey, decisionAvailable: !!config.openAiKey, database: 'sqlite' }));
   app.get('/cart', (_req, res) => res.json({ items: database.cart() }));
   app.get('/orders', (_req, res) => res.json({ orders: database.history() }));
   app.post('/cart', (req, res, next) => {
@@ -133,7 +144,7 @@ export function createApp(options: AppOptions = {}) {
       const preferences = budgetFromInstruction(body.selection.text ?? '', {}, body.preferences);
       const result = await bounded(req, res, async signal => {
         const interpretation = await providers[mode].identify(body.selection, signal);
-        const search = await searchWithFallback(mode, interpretation, preferences, signal);
+        const search = await searchWithFallback(mode, interpretation, preferences, signal, '', body.selection);
         return { sessionId: randomUUID(), mode, interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' } satisfies SearchResponse;
       });
       database.saveSession({ selection: body.selection, interpretation: result.interpretation, preferences, result });
@@ -147,7 +158,7 @@ export function createApp(options: AppOptions = {}) {
       const session = database.session(body.sessionId);
       checkLive(session.result.mode);
       const preferences = budgetFromInstruction(body.instruction, session.preferences, body.preferences);
-      const search = await bounded(req, res, signal => searchWithFallback(session.result.mode, session.interpretation, preferences, signal, body.instruction));
+      const search = await bounded(req, res, signal => searchWithFallback(session.result.mode, session.interpretation, preferences, signal, body.instruction, session.selection));
       const result: SearchResponse = { sessionId: randomUUID(), mode: session.result.mode, interpretation: session.interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' };
       // Keep the original session immutable so an already-reviewed order cannot change underneath its confirmation.
       database.saveSession({ selection: session.selection, interpretation: session.interpretation, preferences, result });
@@ -175,7 +186,7 @@ export function createApp(options: AppOptions = {}) {
       const preferences = budgetFromInstruction(body.answer, session.preferences);
       const result = await bounded(req, res, async signal => {
         const interpretation = await providers[mode].identify(selection, signal);
-        const search = await searchWithFallback(mode, interpretation, preferences, signal);
+        const search = await searchWithFallback(mode, interpretation, preferences, signal, '', selection);
         return { sessionId: randomUUID(), mode, interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' } satisfies SearchResponse;
       });
       database.saveSession({ selection, interpretation: result.interpretation, preferences, result });

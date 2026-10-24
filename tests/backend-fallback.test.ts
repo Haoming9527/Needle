@@ -17,7 +17,7 @@ function setup(overrides: Partial<ServerConfig> = {}, interpreted = item, primar
   const sample: ProductProvider = { identify: vi.fn(async () => interpreted), search: vi.fn(async () => primary) };
   const live: ProductProvider = { identify: vi.fn(async () => interpreted), search: vi.fn(async () => ({ offers: [offer], warnings: ['Retrieved information may be out of date.'] })) };
   const web: ProductProvider = { identify: vi.fn(async () => interpreted), search: vi.fn(async () => ({ offers: [offer], warnings: [] })) };
-  const app = createApp({ config: { ...config, ...overrides }, sampleProvider: sample, liveProvider: live, webDemoProvider: web });
+  const app = createApp({ config: { ...config, ...overrides }, sampleProvider: sample, liveProvider: live, webDemoProvider: web, decisionProvider: async (_config, input) => ({ offers: input.offers, decision: { status: 'unavailable' }, warnings: [] }) });
   apps.push(app);
   return { app, sample, live, web };
 }

@@ -2,6 +2,39 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## v0.7.3 visible search glow
+
+- Increased the red marker's glow contrast and pulse visibility while retaining its 6px dot, bounded 18px halo, and 20px popup clearance. It remains active during initial and clarification searches, pauses for capture, and disappears on results, questions, errors, or cancellation.
+- All 16 content-script checks passed. TypeScript, production build, and extension package validation passed. The browser fixture confirmed the visible glow during loading; preview: `.local/screenshots/needle-search-glow-v073.png`.
+
+## v0.7.2 single microphone control
+
+- Simplified clarification replies in the popup and panel to one icon-only microphone inside the answer field, alongside the existing Search/Send action. Removed the separate playback and voice-button row.
+- The microphone switches to a stop/cancel control while active. Editable transcripts, typing, cancellation, and errors remain; the tooltip explains that microphone audio is sent to OpenAI. Backend speech support is retained without automatic playback.
+- All 23 content-script and voice-controller checks passed. TypeScript, production build, and extension package validation passed.
+
+## v0.7.1 compact cursor marker
+
+- Reduced the red dot to 6px with a soft, bounded 18px halo. The pulse changes opacity only; there is no expanding ring or spreading blur.
+- Popup placement reserves a 20px gap from the clicked point. It chooses the left side near the right edge, or above/below on narrow pages, limiting growth so loading, questions, and results stay clear of the marker.
+- All 16 content-script tests passed, including stable placement and height limits on narrow viewports. TypeScript, production build, and extension package validation passed. The browser fixture visually confirmed the smaller glow and separation during loading; preview: `.local/screenshots/needle-glow-v071.png`.
+
+## v0.7 product decisions and voice
+
+- OpenAI's dedicated Decisions API ranks retrieved offers after discovery, refinement, and clarification. It uses the clicked crop/coordinates when available, respects currency-specific budgets, and can reject all candidates. A rejected catalog set triggers the existing Exa path. Failed decisions leave grounded offers intact with a warning and no Best fit badge.
+- A real authenticated Decisions request with deliberately reversed headphone candidates selected `sample-sony-xm5` using `gpt-6-luna`, matching the requested Sony WH-1000XM5. No product facts were rewritten.
+- A real authenticated Speech request read a saved clarification question with `gpt-4o-mini-tts`. Its generated MP3 was passed to `gpt-transcribe`, which returned “Do you mean the headphones or the lamp?” This check used generated audio, not the user's microphone.
+- Both popup and panel offer explicit Listen question and Answer by voice controls. Transcripts remain editable until submitted. Audio is transient; question speech is bound to the saved session. Cancellation, late microphone permission grants, late transcripts, size limits, and track/object-URL cleanup have automated coverage.
+- All 178 tests in 17 files passed, as did TypeScript, the production build, and extension package validation for 0.7.0. Existing SQLite data and `.env` credentials were preserved.
+- The browser clarification fixture displays the controls and recovers from a simulated voice-service failure while keeping typing available. Native Chrome microphone permissions and audible playback remain for the user's smoke test after reloading the extension and refreshing the webpage.
+
+## v0.6.1 cursor search glow
+
+- Added a red dot with a gently pulsing halo at the original right-click coordinates while discovery or clarification is pending. The marker does not move the popup or intercept pointer input; reduced-motion preference uses a steady glow.
+- The marker shares the popup's capture visibility so it is excluded from the screenshot. Results, questions, failures, cancellation, and disposal hide or remove it.
+- All 13 content-script tests passed, including marker position near viewport edges, capture visibility, and clarification/error/cancel lifecycle. TypeScript, production build, and extension package validation passed.
+- The 0.6.1 native visual check remains for the user after reloading Needle and refreshing the webpage.
+
 ## v0.5 editorial photography and loading
 
 - Generated seven realistic photo assets with the built-in image generator and saved them under `public/assets/photos/`; full prompts are indexed in `PHOTO-PROMPTS.md`.

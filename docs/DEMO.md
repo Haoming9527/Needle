@@ -8,9 +8,9 @@ This presentation uses a shopping prototype with source-backed products, prepare
 
 1. Keep the configured .env, run `npm run dev`, then `npm run build`.
 2. Reload the unpacked extension from `dist/extension` in Chrome.
-3. Check extension version 0.6.0 and refresh the target webpage after upgrading.
+3. Check extension version 0.7.3 and refresh the target webpage after upgrading.
 4. Open [The Everyday Edit article](http://127.0.0.1:5173/demo.html). The [studio video fixture](http://127.0.0.1:5173/x-demo.html) is a second scenario.
-5. For AI image recognition, OPENAI_API_KEY (or AI_GATEWAY_API_KEY) must be configured. Add EXA_API_KEY for automatic web search when the prepared catalog has no match.
+5. Use OPENAI_API_KEY for image recognition, product decisions, and voice. AI_GATEWAY_API_KEY alone supports recognition and catalog search. Add EXA_API_KEY for automatic web search when the prepared catalog has no suitable match.
 
 ## Seven-minute story
 
@@ -28,9 +28,11 @@ This presentation uses a shopping prototype with source-backed products, prepare
 ## Recovery
 
 - **No key:** Describe an item in the panel; the local catalog can still search text. Do not claim that this path ran image recognition.
-- **Wrong object:** Right-click directly on it. Needle labels that exact cursor point for the agent. If a question appears, answer in the popup and press Enter or Search; it reuses the same frame. The panel also supports replies and manual crop/description controls.
+- **Wrong object:** Right-click directly on it. Needle labels that exact cursor point for the agent. If a question appears, type an answer or click the microphone icon inside the answer field, speak, and click the same icon to stop recording. Review the transcript, then press Enter or Search; it reuses the same frame. The panel also supports replies and manual crop/description controls.
+- **Voice unavailable:** Allow microphone access after clicking Answer by voice. If the webpage blocks audio or microphone access, type the reply or use Needle's panel. Never claim the agent heard an answer until its transcript appears.
+- **Best fit:** This badge appears only after OpenAI Decisions selects a candidate. Decisions compares retrieved facts and the selected object; it does not verify inventory or create a new price.
 - **No catalog match:** With both keys, Needle automatically searches the wider web. References become local demo items with source links; they do not establish current inventory. The full request times out after 45 seconds with retry available.
-- **Normal Chrome menu instead of the toolbar:** Reload Needle, verify version 0.6.0, and refresh the tab. Ensure Needle's site access is enabled. Ordinary images, video overlays, backgrounds, and page areas use the custom toolbar; editable fields and Shift + right-click preserve the normal menu.
+- **Normal Chrome menu instead of the toolbar:** Reload Needle, verify version 0.7.3, and refresh the tab. Ensure Needle's site access is enabled. Ordinary images, video overlays, backgrounds, and page areas use the custom toolbar; editable fields and Shift + right-click preserve the normal menu.
 - **Black video capture:** Protected video may not expose pixels. Use a description.
 - **Service offline:** Start `npm run dev`; check `http://127.0.0.1:4318/health`.
 - **AI request fails:** Check the key/model in .env, restart the API, and retry. Keys must never be shown on screen.

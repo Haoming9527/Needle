@@ -50,7 +50,13 @@ export interface Offer {
 export interface DiscoverRequest { selection: Selection; preferences?: Preferences; mode?: DiscoveryMode }
 export interface RefineRequest { sessionId: string; instruction: string; preferences?: Preferences }
 export interface ClarifyRequest { sessionId: string; answer: string; selection: Selection }
+export interface ProductDecision {
+  status: 'selected' | 'no_match' | 'unavailable' | 'failed';
+  offerId?: string;
+  model?: string;
+}
 export interface SearchResponse {
+  decision?: ProductDecision;
   discoverySource?: 'catalog' | 'exa';
   webSearch?: { status: 'used' | 'empty' | 'unavailable' | 'failed'; message: string };
   agentMode?: 'ai' | 'catalog';
@@ -84,6 +90,8 @@ export interface DemoOrder {
   message: string;
 }
 export interface HealthResponse {
+  voiceAvailable?: boolean;
+  decisionAvailable?: boolean;
   agentAvailable?: boolean;
   agentMode?: 'ai' | 'catalog';
   database?: 'sqlite';
