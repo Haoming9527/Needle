@@ -76,7 +76,13 @@ const server=http.createServer(async(req,res)=>{
   const path=u.pathname==='/'?'/index.html':u.pathname;
   const allowed=new Map([['/index.html','text/html; charset=utf-8'],['/app.js','text/javascript'],['/style.css','text/css'],...['headphones','chair','tent','laptop'].map(x=>['/assets/'+x+'.svg','image/svg+xml'])]);
   if(!allowed.has(path))return send(404,{error:'NOT_FOUND'});
-  res.writeHead(200,{'Content-Type':allowed.get(path)});res.end(readFileSync(join(root,'public',path)));
+  let content;
+  try { content=readFileSync(join(root,'public',path)); }
+  catch (error) {
+   if (error.code==='ENOENT') return send(404,{error:'ASSET_NOT_FOUND'});
+   throw error;
+  }
+  res.writeHead(200,{'Content-Type':allowed.get(path)});res.end(content);
  }catch(error){send(400,{error:error.message==='BODY_TOO_LARGE'?'BODY_TOO_LARGE':'INVALID_REQUEST'})}
 });
 server.listen(port,'127.0.0.1',()=>console.log(`Needle · Logan http://127.0.0.1:${port}`));

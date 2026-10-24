@@ -8,3 +8,6 @@ coverage/
 test-results/
 playwright-report/
 *.log
+
+# Logan standalone demo workspace (local interest and URL mappings)
+logan/data/
