@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { MAX_SYNTHESIS_OBSERVATIONS, type SynthesisSnapshot, type SynthesisOutput, type IntentSynthesisState } from '../shared/synthesis.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { IntentAction, IntentConnection, IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
 import { ATTENTION_DWELL_MS, DEMO_ATTENTION_SOURCES, attentionSourceForUrl, type AttentionCapture } from '../shared/attention.js';
@@ -15,7 +17,7 @@ function sourceIdentity(value: IntentObservationInput): string | undefined {
     if (source && source.targetId === capture.targetId && capture.actualOrigin === value.sourceOrigin && attentionSourceForUrl(`${capture.actualOrigin}${source.path}`)?.id === source.id) return `demo:${source.id}`;
   }
   const host = site(value.sourceOrigin);
-  return ['localhost', '127.0.0.1', '[::1]', 'needle.local'].includes(host) || host.endsWith('.localhost') ? undefined : host;
+  return ['localhost', '127.0.0.1', '[::1]', 'needle.local'].includes(host) || host.endsWith('.localhost') || /^127\./.test(host) || host.endsWith('.local') ? undefined : host;
 }
 const parse = <T>(data: unknown): T => JSON.parse(String(data)) as T;
 interface StoredIntentFeedback extends IntentFeedback { supportingObservationIds?: string[] }
@@ -26,7 +28,7 @@ function matchesSupport(feedback: StoredIntentFeedback | undefined, ids: string[
 
 
 /** Bounded reasoning templates keep captured actions distinct from proposed needs. */
-function connectionFor(first: IntentObservation, second: IntentObservation, key: IntentHypothesis['recommendationKey'], response?: IntentFeedback): IntentConnection {
+function connectionFor(first: IntentObservation, second: IntentObservation, key: Exclude<IntentHypothesis['recommendationKey'], 'contextual'>, response?: IntentFeedback): IntentConnection {
   const corrected = response?.action === 'correct';
   const confirmed = corrected || response?.action === 'confirm';
   const templates = {
@@ -70,14 +72,20 @@ function connectionFor(first: IntentObservation, second: IntentObservation, key:
 }
 
 /** Local single-user evidence memory. Scores are explainable heuristic points, never probabilities. */
+interface StoredSynthesis { contextKey: string; result: SynthesisOutput; generatedAt: string; correction?: string; model: string; promptVersion: string }
+const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
 export class IntentStore {
+  private synthesisConfig?: { available: boolean; model: string; promptVersion: string };
   constructor(private db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS intent_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS intent_observations (id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS intent_events (id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL, action TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS intent_event_entity ON intent_events(semantic_key);
       CREATE TABLE IF NOT EXISTS intent_seen (id TEXT PRIMARY KEY);
-      CREATE TABLE IF NOT EXISTS intent_feedback (id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS intent_feedback (id TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS intent_runtime (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS intent_syntheses (id INTEGER PRIMARY KEY, data TEXT NOT NULL);`);
     // Upgrade prior aggregate-only databases without changing canonical observation IDs.
     for (const row of db.prepare('SELECT id,semantic_key,data FROM intent_observations').all()) {
       if (!db.prepare('SELECT id FROM intent_events WHERE semantic_key=? LIMIT 1').get(row.semantic_key)) {
@@ -86,20 +94,121 @@ export class IntentStore {
       }
     }
   }
+  configureSynthesis(config: { available: boolean; model: string; promptVersion: string }): void {
+    if (JSON.stringify(this.synthesisConfig) !== JSON.stringify(config)) this.bumpRuntime();
+    this.synthesisConfig = { ...config };
+  }
+  private runtime(key: string): number { return Number(this.db.prepare('SELECT value FROM intent_runtime WHERE key=?').get(key)?.value ?? 0); }
+  private bumpRuntime(consentEpoch = false): void {
+    this.db.prepare("INSERT INTO intent_runtime VALUES ('revision',1) ON CONFLICT(key) DO UPDATE SET value=value+1").run();
+    if (consentEpoch) this.db.prepare("INSERT INTO intent_runtime VALUES ('consentEpoch',1) ON CONFLICT(key) DO UPDATE SET value=value+1").run();
+  }
+  synthesisRevision(): number { return this.runtime('revision'); }
+  synthesisSnapshot(): SynthesisSnapshot {
+    const all = this.db.prepare('SELECT data FROM intent_observations ORDER BY rowid').all().map(row => parse<IntentObservation>(row.data));
+    const eligible = all.filter(value => !!sourceIdentity(value));
+    const cohorts = [eligible.filter(value => !!value.capture), eligible.filter(value => !value.capture && value.provenance === 'observed'), eligible.filter(value => !value.capture && value.provenance === 'demo_fixture')];
+    const distinct = (values: IntentObservation[]) => new Set(values.map(value => sourceIdentity(value))).size;
+    const cohort = cohorts.find(values => distinct(values) >= 2) ?? cohorts.find(values => values.length) ?? [];
+    // Round-robin by source keeps the bound from hiding a second source behind many items on one page.
+    const groups = new Map<string, IntentObservation[]>();
+    for (const value of [...cohort].reverse()) { const key = sourceIdentity(value)!; groups.set(key, [...(groups.get(key) ?? []), value]); }
+    const selected: IntentObservation[] = [];
+    for (let index = 0; selected.length < MAX_SYNTHESIS_OBSERVATIONS; index++) {
+      let found = false;
+      for (const group of groups.values()) { if (group[index] && selected.length < MAX_SYNTHESIS_OBSERVATIONS) { selected.push(group[index]!); found = true; } }
+      if (!found) break;
+    }
+    const observations = selected.sort((a, b) => a.id.localeCompare(b.id)).map(value => ({
+      id: value.id, sourceKey: sourceIdentity(value)!, sourceTitle: value.sourceTitle.slice(0, 200), summary: value.summary.slice(0, 500), action: value.action,
+      tags: [...new Set(value.tags)].sort(), provenance: value.provenance,
+      ...(value.capture ? { measurement: { dwellMs: value.capture.dwellMs, visitOrdinal: value.capture.visitOrdinal } } : {}),
+    }));
+    const contextKey = digest({ consentEpoch: this.runtime('consentEpoch'), model: this.synthesisConfig?.model ?? '', promptVersion: this.synthesisConfig?.promptVersion ?? '', observations });
+    return { contextKey, observations };
+  }
+  saveSynthesis(expectedContextKey: string, result: SynthesisOutput, correction?: string): IntentState {
+    const consent = this.db.prepare("SELECT value FROM intent_settings WHERE key='consent'").get()?.value === 'true';
+    if (!consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before connecting observations.');
+    if (!this.synthesisConfig) throw new ApiError(409, 'SYNTHESIS_NOT_CONFIGURED', 'Context synthesis is not configured.');
+    const snapshot = this.synthesisSnapshot();
+    if (snapshot.contextKey !== expectedContextKey) throw new ApiError(409, 'SYNTHESIS_CONTEXT_CHANGED', 'The supporting context changed. Connect the current observations again.');
+    const fail = () => { throw new ApiError(422, 'INVALID_SYNTHESIS', 'The proposed connection must be grounded in the current independent sources.'); };
+    if (!result || !['hypothesis', 'abstain'].includes(result.outcome) || typeof result.uncertainty !== 'string' || !result.uncertainty.trim() || result.uncertainty.length > 1000 || !Array.isArray(result.evidence) || result.evidence.length > MAX_SYNTHESIS_OBSERVATIONS) fail();
+    if (correction !== undefined && (typeof correction !== 'string' || !correction.trim() || correction.length > 1000)) fail();
+    if (result.evidence.some(value => !value || typeof value !== 'object' || typeof value.observationId !== 'string')) fail();
+    const ids = result.evidence.map(value => value.observationId);
+    if (new Set(ids).size !== ids.length) fail();
+    const cited = result.evidence.map(value => {
+      const observation = snapshot.observations.find(item => item.id === value.observationId);
+      if (!observation || typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 500) fail();
+      return observation!;
+    });
+    if (result.outcome === 'hypothesis') {
+      if (new Set(cited.map(value => value.sourceKey)).size < 2) fail();
+      for (const [key, limit] of [['label', 100], ['need', 500], ['why', 1000], ['question', 500], ['productQuery', 300]] as const) {
+        if (typeof result[key] !== 'string' || !result[key]?.trim() || result[key]!.length > limit) fail();
+      }
+    } else if (['label', 'need', 'why', 'question', 'productQuery'].some(key => result[key as keyof SynthesisOutput] !== null)) fail();
+    const saved: StoredSynthesis = { contextKey: expectedContextKey, result, generatedAt: new Date().toISOString(), correction, model: this.synthesisConfig.model, promptVersion: this.synthesisConfig.promptVersion };
+    this.db.prepare('INSERT INTO intent_syntheses VALUES (1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(saved));
+    this.bumpRuntime();
+    return this.getState();
+  }
+  private modelHypothesis(saved: StoredSynthesis, observations: IntentObservation[], feedback: Map<string, StoredIntentFeedback>): IntentHypothesis {
+    const result = saved.result;
+    const supporting = result.evidence.map(value => observations.find(item => item.id === value.observationId)!);
+    const evidenceIds = supporting.map(value => value.id);
+    const id = `ai-${digest([saved.contextKey, result, saved.correction ?? '']).slice(0, 48)}`;
+    const stored = feedback.get(id);
+    const response = matchesSupport(stored, evidenceIds) ? stored : undefined;
+    const confirmed = response?.action === 'confirm';
+    const tags = new Set(supporting.flatMap(value => value.tags));
+    const explicit = observations.filter(value => value.tags.some(tag => tags.has(tag)) && ['wishlist', 'save', 'cart', 'group_interest'].includes(value.action));
+    const readiness: IntentHypothesis['readiness'] = !confirmed ? 'exploring' : explicit.some(value => value.action === 'cart') ? 'ready_to_review' : explicit.some(value => value.action === 'group_interest') ? 'conditional' : explicit.some(value => ['wishlist', 'save'].includes(value.action)) ? 'considering' : 'exploring';
+    return { id, label: result.label!, question: result.question!, interest: confirmed ? 'confirmed' : 'tentative', status: response?.action === 'dismiss' ? 'dismissed' : 'active',
+      readiness, evidencePoints: 0, evidenceIds, constraints: response?.constraints, recommendationKey: 'contextual',
+      origin: { kind: 'model', model: saved.model, promptVersion: saved.promptVersion, evidenceFingerprint: saved.contextKey, productQuery: result.productQuery! },
+      explanation: `${result.why} Model-generated connection; no purchase probability or calibrated confidence is asserted.`,
+      connection: {
+        observations: supporting.map(value => ({ observationId: value.id, sourceTitle: value.sourceTitle, action: value.action, summary: value.summary, provenance: value.provenance, ...(value.capture ? { capture: value.capture } : {}) })),
+        inferredNeed: { text: result.need!, basis: confirmed ? saved.correction ? 'user_corrected' : 'user_confirmed' : 'hypothesis' },
+        why: result.why!, evidenceReasons: result.evidence, question: result.question!,
+        uncertainty: `${result.uncertainty}${saved.correction ? confirmed ? ' This confirmed proposal incorporates your correction.' : ' This proposal considers your correction and still needs your confirmation.' : ''}${confirmed ? ' Confirming a useful need is not a purchase decision.' : ''}`,
+        ...(confirmed ? { productRationale: result.why! } : {}),
+      },
+    };
+  }
   getState(): IntentState {
     const consent = this.db.prepare("SELECT value FROM intent_settings WHERE key='consent'").get()?.value === 'true';
     const observations = this.db.prepare('SELECT data FROM intent_observations ORDER BY rowid').all().map(row => parse<IntentObservation>(row.data));
     const feedback = new Map(this.db.prepare('SELECT id,data FROM intent_feedback').all().map(row => [String(row.id), parse<StoredIntentFeedback>(row.data)]));
     const attentionConsent = consent && this.db.prepare("SELECT value FROM intent_settings WHERE key='attentionConsent'").get()?.value === 'true';
-    return { consent, attentionConsent, observations, hypotheses: evaluateIntent(observations, feedback) };
+    const rules = evaluateIntent(observations, feedback);
+    if (!this.synthesisConfig) return { consent, attentionConsent, observations, hypotheses: rules };
+    const snapshot = this.synthesisSnapshot();
+    const row = this.db.prepare('SELECT data FROM intent_syntheses WHERE id=1').get();
+    const saved = row ? parse<StoredSynthesis>(row.data) : undefined;
+    const current = saved?.contextKey === snapshot.contextKey && consent;
+    const synthesis: IntentSynthesisState = { ...this.synthesisConfig, ...snapshot,
+      status: saved ? current ? saved.result.outcome === 'abstain' ? 'abstained' : 'ready' : 'stale' : 'idle',
+      ...(current && saved ? { generatedAt: saved.generatedAt, correction: saved.correction, result: saved.result } : {}),
+    };
+    const ai = current && saved?.result.outcome === 'hypothesis' ? this.modelHypothesis(saved, observations, feedback) : undefined;
+    return { consent, attentionConsent, observations, synthesis,
+      hypotheses: ai ? [ai, ...rules] : synthesis.status === 'idle' ? rules : [] };
+
   }
   setConsent(enabled: boolean): IntentState {
+    const previous = this.db.prepare("SELECT value FROM intent_settings WHERE key='consent'").get()?.value === 'true';
+    if (previous !== enabled) this.bumpRuntime(true);
     if (!enabled) this.db.prepare("DELETE FROM intent_settings WHERE key='attentionConsent'").run();
     this.db.prepare("INSERT INTO intent_settings VALUES ('consent',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(enabled));
     return this.getState();
   }
   setAttentionConsent(enabled: boolean): IntentState {
     if (enabled && !this.getState().consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before enabling measured attention.');
+    this.bumpRuntime();
     this.db.prepare("INSERT INTO intent_settings VALUES ('attentionConsent',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(enabled));
     return this.getState();
   }
@@ -127,6 +236,7 @@ export class IntentStore {
       this.db.prepare('INSERT INTO intent_events VALUES (?,?,?,?)').run(event.id, key, event.action, JSON.stringify(event));
       this.db.prepare('INSERT INTO intent_seen VALUES (?)').run(input.id);
       this.rebuild(key);
+      this.bumpRuntime();
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
@@ -141,7 +251,8 @@ export class IntentStore {
     const next: IntentObservation = {
       ...first, id: previous?.id ?? first.id, createdAt: previous?.createdAt ?? first.createdAt,
       action: strongest.action,
-      ...(strongest.capture ? { capture: strongest.capture, sourceOrigin: strongest.sourceOrigin, sourceTitle: strongest.sourceTitle, summary: strongest.summary } : {}),
+      sourceOrigin: strongest.sourceOrigin, sourceTitle: strongest.sourceTitle, summary: strongest.summary,
+      ...(strongest.capture ? { capture: strongest.capture } : {}),
       collectionId: [...events].reverse().find(event => event.collectionId)?.collectionId,
       tags: [...new Set(events.flatMap(event => event.tags))],
       provenance: events.some(event => event.provenance === 'demo_fixture') ? 'demo_fixture' : 'observed',
@@ -155,6 +266,7 @@ export class IntentStore {
     try {
       this.db.prepare('DELETE FROM intent_events WHERE semantic_key=? AND action=?').run(key, action);
       this.rebuild(key);
+      this.bumpRuntime();
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
@@ -164,6 +276,7 @@ export class IntentStore {
     if (input.action !== 'dismiss' && !state.consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before confirming or correcting an interest.');
     const hypothesis = state.hypotheses.find(value => value.id === id);
     if (!hypothesis) throw new ApiError(404, 'INTENT_NOT_FOUND', 'That interest is no longer available.');
+    if (input.action === 'correct' && hypothesis.origin?.kind === 'model') throw new ApiError(400, 'SYNTHESIS_CORRECTION_REQUIRED', 'Reconsider the context with your correction before confirming a new need.');
     if (input.action === 'correct' && !input.correction) throw new ApiError(400, 'CORRECTION_REQUIRED', 'Choose the corrected need.');
     if (input.action === 'correct' && ((id === 'lunch-on-the-move' && input.correction !== 'home-meal-prep') || (id === 'recording-setup' && input.correction !== 'work-calls'))) throw new ApiError(400, 'INVALID_CORRECTION', 'Choose a correction relevant to this interest.');
     const previous = this.db.prepare('SELECT data FROM intent_feedback WHERE id=?').get(id);
@@ -172,6 +285,7 @@ export class IntentStore {
     const prior = matchesSupport(stored, supportingObservationIds) ? stored : undefined;
     const updated: StoredIntentFeedback = { ...input, constraints: input.constraints ?? prior?.constraints, supportingObservationIds };
     this.db.prepare('INSERT INTO intent_feedback VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(id, JSON.stringify(updated));
+    this.bumpRuntime();
     return this.getState();
   }
   remove(id: string): IntentState {
@@ -181,13 +295,14 @@ export class IntentStore {
     try {
       this.db.prepare('DELETE FROM intent_events WHERE semantic_key=?').run(row.semantic_key);
       this.db.prepare('DELETE FROM intent_observations WHERE id=?').run(id);
+      this.bumpRuntime();
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
   }
   reset(): IntentState {
     this.db.exec('BEGIN IMMEDIATE');
-    try { this.db.exec('DELETE FROM intent_events; DELETE FROM intent_observations; DELETE FROM intent_feedback; DELETE FROM intent_seen; DELETE FROM intent_settings; COMMIT;'); }
+    try { this.db.exec('DELETE FROM intent_events; DELETE FROM intent_observations; DELETE FROM intent_feedback; DELETE FROM intent_seen; DELETE FROM intent_settings; DELETE FROM intent_syntheses;'); this.bumpRuntime(true); this.db.exec('COMMIT'); }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
   }
