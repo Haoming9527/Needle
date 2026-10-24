@@ -3,12 +3,13 @@ import { offerSource } from '../../shared/offer-source';
 import { mediaCrop } from './geometry';
 import { targetAt, targetGeometry, targetText, type ShoppingTarget } from './target';
 import { createVoiceSession, type VoiceSession, type VoiceState } from '../voice/voice-client';
+import { createShoppingGate } from './preferences';
 
 interface Popup {
   id: string; target: ShoppingTarget; pointerX: number; pointerY: number; host: HTMLDivElement; details: HTMLDivElement;
   status: HTMLParagraphElement; title: HTMLHeadingElement; price: HTMLParagraphElement;
   image: HTMLImageElement; offers: HTMLSelectElement; variants: HTMLSelectElement;
-  buy: HTMLButtonElement; cart: HTMLButtonElement; save: HTMLButtonElement; find: HTMLButtonElement; result?: SearchResponse; added: boolean;
+  buy: HTMLButtonElement; cart: HTMLButtonElement; result?: SearchResponse; added: boolean;
   loading: HTMLDivElement; loadingTitle: HTMLElement; loadingTip: HTMLParagraphElement; loadingTime: HTMLSpanElement;
   loadingTimer?: ReturnType<typeof setInterval>;
   panel: HTMLElement; reply: HTMLFormElement; answer: HTMLInputElement; submit: HTMLButtonElement;
@@ -22,6 +23,8 @@ const contentGlobal = globalThis as ContentGlobal;
 contentGlobal.__needleContentDispose?.();
 const extensionId = chrome.runtime.id;
 let current: Popup | null = null;
+const shopping = createShoppingGate(enabled => { if (!enabled) dismiss(); });
+void shopping.ready.catch(() => { dismiss(); });
 const isX = /(^|\.)(x\.com|twitter\.com)$/.test(location.hostname);
 const searchTips = ['Refine by color, style, or budget.', 'Prices keep their original currency.', 'Source links live in Product details.', 'A closer crop helps focus on one object.'];
 
@@ -31,6 +34,8 @@ function node<K extends keyof HTMLElementTagNameMap>(name: K, text?: string): HT
   return element;
 }
 function send<T>(message: unknown): Promise<T> {
+  const type = typeof message === 'object' && message !== null && 'type' in message ? message.type : '';
+  if (type !== 'NEEDLE_OVERLAY_CANCEL' && type !== 'NEEDLE_OVERLAY_VOICE_CANCEL' && !shopping.isEnabled()) return Promise.reject(new Error('Needle is off. Turn it on in the side panel.'));
   try { return chrome.runtime.sendMessage(message) as Promise<T>; }
   catch { return Promise.reject(new Error('Refresh this page after reloading Needle.')); }
 }
@@ -108,7 +113,6 @@ function renderOffer(popup: Popup): void {
   popup.variants.replaceChildren();
   if (!offer) return;
   popup.details.hidden = false;
-  popup.buy.hidden = false; popup.cart.hidden = false; popup.find.hidden = true;
   popup.title.textContent = offer.title;
   popup.price.textContent = formatPrice(offer);
   popup.status.textContent = `${offer.match === 'exact' ? 'Exact match' : offer.match === 'likely' ? 'Likely match' : 'Similar alternative'} · ${offerSource(offer).label}`;
@@ -129,7 +133,6 @@ function fail(popup: Popup, message: string): void {
   if (current !== popup) return;
   stopLoading(popup);
   popup.pending = false;
-  popup.find.disabled = false;
   updateVoiceControls(popup);
   popup.answer.disabled = false;
   popup.submit.disabled = !popup.answer.value.trim();
@@ -214,8 +217,9 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
   const price = node('p'); price.className = 'price';
   headings.append(price);
   const details = node('div'); details.className = 'details'; details.hidden = true; details.append(head);
-  const status = node('p', 'Save an idea, or look for a product.'); status.className = 'status'; status.setAttribute('role', 'status');
-  const loading = node('div'); loading.className = 'looking'; loading.hidden = true;
+  const status = node('p', 'Finding this item…'); status.className = 'status'; status.setAttribute('role', 'status');
+  status.hidden = true;
+  const loading = node('div'); loading.className = 'looking';
   const loadingHead = node('div'); loadingHead.className = 'looking-head';
   const lens = node('span'); lens.className = 'looking-lens'; lens.setAttribute('aria-hidden', 'true');
   const loadingTitle = node('strong', 'Finding what caught your eye…'); loadingTitle.className = 'looking-title'; loadingTitle.setAttribute('role', 'status');
@@ -227,9 +231,6 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
   const actions = node('div'); actions.className = 'actions';
   const buy = node('button', 'Buy'); buy.type = 'button'; buy.disabled = true;
   const cart = node('button', 'Add to cart'); cart.type = 'button'; cart.disabled = true;
-  buy.hidden = true; cart.hidden = true;
-  const save = node('button', 'Save inspiration'); save.type = 'button';
-  const find = node('button', 'Find products'); find.type = 'button';
   const cancel = node('button', '×'); cancel.className = 'cancel'; cancel.type = 'button'; cancel.setAttribute('aria-label', 'Cancel');
   const reply = node('form'); reply.className = 'reply'; reply.setAttribute('aria-label', 'Answer Needle');
   const answerLabel = node('label', 'Your answer');
@@ -249,12 +250,11 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
   targetSpot.style.setProperty('left', `${x}px`); targetSpot.style.setProperty('top', `${y}px`);
   // A sibling of the scrollable panel keeps the glow at the clicked point. It
   // shares the host's capture visibility, so these pixels never enter the crop.
-  actions.style.flexWrap = 'wrap';
-  actions.append(save, find, buy, cart, cancel); panel.append(actions, loading, details, status, offers, variants); shadow.append(style, panel, targetSpot); document.documentElement.append(host);
+  actions.append(buy, cart, cancel); panel.append(actions, loading, details, status, offers, variants); shadow.append(style, panel, targetSpot); document.documentElement.append(host);
   // Chrome 114+: the top layer keeps the toolbar above fullscreen players and dialogs.
   try { host.setAttribute('popover', 'manual'); host.showPopover(); }
   catch { host.removeAttribute('popover'); }
-  const popup: Popup = { id: crypto.randomUUID(), target, pointerX: x, pointerY: y, host, panel, details, status, title, price, image, offers, variants, buy, cart, save, find, added: false, loading, loadingTitle, loadingTip, loadingTime, reply, answer, submit, targetSpot, pending: false, record, voiceStatus, voiceState: { phase: 'idle', message: '' } };
+  const popup: Popup = { id: crypto.randomUUID(), target, pointerX: x, pointerY: y, host, panel, details, status, title, price, image, offers, variants, buy, cart, added: false, loading, loadingTitle, loadingTip, loadingTime, reply, answer, submit, targetSpot, pending: false, record, voiceStatus, voiceState: { phase: 'idle', message: '' } };
   popup.voice = createVoiceSession({
     question: async () => {
       const value = await send<{ audioDataUrl?: string; error?: string }>({ type: 'NEEDLE_OVERLAY_SPEAK', requestId: popup.id });
@@ -272,18 +272,10 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
     answer.value = transcript; submit.disabled = false;
   });
   position(popup);
+  startLoading(popup);
   offers.addEventListener('change', () => renderOffer(popup));
   variants.addEventListener('change', () => { popup.added = false; popup.cart.textContent = 'Add to cart'; updateButtons(popup); });
   cancel.addEventListener('click', dismiss);
-  find.addEventListener('click', () => startDiscovery(popup));
-  save.addEventListener('click', () => {
-    save.disabled = true; popup.status.textContent = 'Saving selected context…';
-    void send<{ error?: string }>({ type: 'NEEDLE_OVERLAY_SAVE', requestId: popup.id }).then(result => {
-      if (current !== popup) return;
-      if (result?.error) { popup.status.textContent = result.error; save.disabled = false; return; }
-      save.textContent = 'Saved'; popup.status.textContent = 'Saved to your collection inbox. Open Needle → Saved to organise it.';
-    }).catch(() => { if (current === popup) { popup.status.textContent = 'Could not save. Try again.'; save.disabled = false; } });
-  });
   answer.addEventListener('input', () => { popup.voice?.cancel(); submit.disabled = popup.pending || !answer.value.trim(); });
   record.addEventListener('click', () => { if (popup.pending) return; if (popup.voiceState.phase === 'recording') popup.voice?.stopRecording(); else if (popup.voiceState.phase !== 'idle') popup.voice?.cancel(); else void popup.voice?.record(); });
   for (const type of ['keydown', 'keyup']) reply.addEventListener(type, event => event.stopPropagation());
@@ -306,19 +298,13 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
 
 // Old isolated worlds can outlive an extension reload; yield to the new listener.
 function onContextMenu(event: MouseEvent): void {
-  if (!connected() || !event.isTrusted || event.shiftKey || (current && event.composedPath().includes(current.host))) return;
+  if (!shopping.isEnabled() || !connected() || !event.isTrusted || event.shiftKey || (current && event.composedPath().includes(current.host))) return;
   const target = targetAt(event);
   if (!target) return;
-  if (!target.element && event.target instanceof Element) target.contextElement = event.target;
   event.preventDefault(); event.stopImmediatePropagation();
   dismiss();
   const popup = makePopup(target, event.clientX, event.clientY);
   current = popup;
-}
-function startDiscovery(popup: Popup): void {
-  if (current !== popup || popup.pending || popup.find.disabled) return;
-  popup.find.disabled = true;
-  startLoading(popup);
   void send<DiscoveryReply>({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: popup.id })
     .then(response => showResponse(popup, response))
     .catch(() => fail(popup, 'Needle was reloaded. Refresh this page and try again.'));
@@ -331,11 +317,10 @@ function onResize(): void { if (current) position(current); }
 const onMessage: Parameters<typeof chrome.runtime.onMessage.addListener>[0] = (message, sender, respond) => {
   const popup = current;
   if (sender.id !== chrome.runtime.id || !popup || message?.requestId !== popup.id) return;
-  if (message.type === 'NEEDLE_READ_CONTEXT') { respond(targetText(popup.target, isX)); return; }
   if (message.type === 'NEEDLE_CAPTURE_FINISHED') { popup.host.style.setProperty('visibility', 'visible', 'important'); respond({ ok: true }); return; }
   if (!['NEEDLE_PREPARE_CAPTURE', 'NEEDLE_VALIDATE_CAPTURE'].includes(message.type)) return;
   const prepare = () => {
-    if (current !== popup) { respond({ error: 'Selection cancelled' }); return; }
+    if (!shopping.isEnabled() || current !== popup) { respond({ error: 'Selection cancelled' }); return; }
     try {
       const box = targetGeometry(popup.target, popup.pointerX, popup.pointerY); mediaCrop(box);
       respond({ geometry: box, ...targetText(popup.target, isX) });
@@ -355,6 +340,7 @@ window.addEventListener('resize', onResize);
 chrome.runtime.onMessage.addListener(onMessage);
 contentGlobal.__needleContentDispose = () => {
   dismiss();
+  shopping.dispose();
   window.removeEventListener('contextmenu', onContextMenu, { capture: true });
   window.removeEventListener('keydown', onKeyDown, { capture: true });
   window.removeEventListener('pointerdown', onPointerDown, { capture: true });

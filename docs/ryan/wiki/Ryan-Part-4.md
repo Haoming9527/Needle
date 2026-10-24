@@ -8,6 +8,6 @@ Cursor dwell is a weak attention signal, not proof of buying intent. The distinc
 
 The demo measures real cursor duration across two prepared source identities on one local origin. It is not yet arbitrary cross-site instrumentation. AI can assess bounded observations beyond the prepared topics; a separately labelled rule-based demo works without an AI key.
 
-Existing Save inspiration, Find products, screenshot identification, clarification, and voice remain team workflows. Part 4 adds a context-to-need layer. It does not place orders or connect seller analytics to live browsing.
+Automatic right-click search, the three-action popup, screenshot identification, clarification, and voice remain team workflows. Find is the default; Discover and Saved are optional panel views. Part 4 adds a context-to-need layer. It does not place orders or connect seller analytics to live browsing.
 
 [[Architecture and data|Architecture-and-Data]] · [[Demo and setup|Demo-and-Setup]] · [Detailed overview](https://github.com/Haoming9527/Needle/blob/codex/connected-intent-demo/docs/ryan/README.md)

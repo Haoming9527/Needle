@@ -2,12 +2,12 @@
 
 ## What is live and what is prepared
 
-The demo measures trusted pointer interactions in two registered reading regions. The articles and topic tags are prepared. AI synthesis is a separate explicit step; the prepared topic-to-need rules remain an opt-in fallback. Both pages run on the same local origin; they represent **two controlled demo sources**, not verified browsing across two independent websites. The existing extension still captures only explicit Save / Find interactions on ordinary websites.
+The demo measures trusted pointer interactions in two registered reading regions. The articles and topic tags are prepared. AI synthesis is a separate explicit step; the prepared topic-to-need rules remain an opt-in fallback. Both pages run on the same local origin; they represent **two controlled demo sources**, not verified browsing across two independent websites. The existing extension automatically searches after an explicit right-click on ordinary websites. Ambient measurement is independent of that shopping action and currently runs only on the registered local sources.
 
 | Input | Producer | Stored evidence | Effect |
 | --- | --- | --- | --- |
 | Cursor pause / return | Controlled source page + shared attention collector | Source ID, actual origin, region ID, dwell duration, visit ordinal, session/page IDs, timestamp | Weak evidence, capped at 2 points per source |
-| Save inspiration / wishlist | Existing capture and commerce routes | Bounded content summary, source, tags, stable item identity | Explicit interest; Considering readiness |
+| Panel wishlist | Commerce routes | Bounded content summary, source, tags, stable item identity | Explicit interest; Considering readiness |
 | Cart | Existing cart route | Product identity and action | Ready to review, not a completed purchase |
 | Confirmation / correction | Discover question | Feedback bound to the exact supporting observation IDs, optional constraint | Allows the guarded recommendation route |
 

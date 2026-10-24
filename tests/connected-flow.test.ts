@@ -85,6 +85,20 @@ describe('connected discovery, collections and conditional demand', () => {
     expect((await state(api)).hypotheses[0]).toMatchObject({ readiness: 'exploring', evidencePoints: 4 });
   });
 
+  it.each([true, false])('clear cart retracts readiness while consent is %s', async enabled => {
+    const api = setup(); await seed(api);
+    const result = await discover(api), offer = result.offers[0]!;
+    await api.post('/cart').send({ sessionId: result.sessionId, offerId: offer.id, variant: offer.variants[0] }).expect(200);
+    expect((await state(api)).hypotheses[0]?.readiness).toBe('ready_to_review');
+    await api.post('/intent/consent').send({ enabled }).expect(200);
+    await api.post('/cart/clear').send({ unexpected: true }).expect(400);
+    expect((await state(api)).hypotheses[0]?.readiness).toBe('ready_to_review');
+    expect((await api.post('/cart/clear').send({}).expect(200)).body.items).toEqual([]);
+    expect((await state(api)).hypotheses[0]?.readiness).toBe('exploring');
+    await api.post('/cart/clear').send({}).expect(200);
+    expect((await state(api)).hypotheses[0]?.readiness).toBe('exploring');
+  });
+
   it('supports remove-and-save-again without duplicate score inflation or stale tombstones', async () => {
     const api = setup(); await seed(api); const item = saved((await discover(api)).offers[0]!);
     await api.post('/saved-items').send(item).expect(200);

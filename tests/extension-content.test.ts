@@ -63,6 +63,7 @@ let windowEvents: FakeElement;
 let hits: FakeElement[];
 let runtimeEvents: Set<(...args: any[]) => unknown>;
 let runtime: any;
+let storage: any;
 let finishDiscovery: (value: unknown) => void;
 let sendMessage: ReturnType<typeof vi.fn>;
 function click(target: FakeElement, extra: Record<string, unknown> = {}) {
@@ -71,8 +72,6 @@ function click(target: FakeElement, extra: Record<string, unknown> = {}) {
   return { target, clientX: 200, clientY: 200, composedPath: () => path, isTrusted: true, shiftKey: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(), ...extra } as unknown as MouseEvent;
 }
 function popup() { return root.children.find(child => !!child.shadow)!; }
-function button(label: string) { return popup().shadow!.querySelectorAll('button').find(value => value.textContent === label)!; }
-function findProducts() { button('Find products').emit('click'); }
 function targetMarker(host = popup()) { return host.shadow!.querySelector('[data-needle-target="true"]')!; }
 function contentMessage(type: string, requestId: string) {
   return new Promise<any>(resolve => { for (const listener of runtimeEvents) listener({ type, requestId }, { id: extensionId }, resolve); });
@@ -96,7 +95,16 @@ beforeEach(() => {
   vi.stubGlobal('innerWidth', 1280); vi.stubGlobal('innerHeight', 720); vi.stubGlobal('scrollX', 0); vi.stubGlobal('scrollY', 0);
   vi.stubGlobal('getComputedStyle', (element: FakeElement) => ({ backgroundImage: element.backgroundImage }));
   vi.stubGlobal('requestAnimationFrame', (fn: () => void) => { queueMicrotask(fn); return 1; });
-  vi.stubGlobal('chrome', { runtime });
+  const storageListeners = new Set<(...args: any[]) => void>();
+  storage = {
+    local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
+    onChanged: {
+      addListener: (listener: (...args: any[]) => void) => storageListeners.add(listener),
+      removeListener: (listener: (...args: any[]) => void) => storageListeners.delete(listener),
+      emit: (...args: any[]) => [...storageListeners].forEach(listener => listener(...args)),
+    },
+  };
+  vi.stubGlobal('chrome', { runtime, storage });
 });
 afterEach(() => {
   const state = globalThis as typeof globalThis & { __needleContentDispose?: () => void };
@@ -137,23 +145,46 @@ describe('right-click target selection', () => {
 });
 
 describe('content-script action toolbar', () => {
-  it('offers Save and Find before any discovery or capture starts', async () => {
+  it('does not briefly intercept right-click before the saved OFF setting loads', async () => {
+    let finish!: (value: unknown) => void;
+    storage.local.get.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await import('../src/extension/content');
+    const pending = click(new FakeElement('div')); windowEvents.emit('contextmenu', pending);
+    expect(pending.preventDefault).not.toHaveBeenCalled(); expect(root.children).toHaveLength(0);
+    finish({ 'needle.enabled': false }); await Promise.resolve();
+    const disabled = click(new FakeElement('div')); windowEvents.emit('contextmenu', disabled);
+    expect(disabled.preventDefault).not.toHaveBeenCalled(); expect(sendMessage).not.toHaveBeenCalled();
+    storage.onChanged.emit({ 'needle.enabled': { newValue: true } }, 'local');
+    const enabled = click(new FakeElement('div')); windowEvents.emit('contextmenu', enabled);
+    expect(enabled.preventDefault).toHaveBeenCalled(); expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+  it('dismisses the popup and cursor glow, and ignores late discovery when switched off', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    const marker = targetMarker();
+    storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    expect(marker.hidden).toBe(true); expect(root.children).toHaveLength(0);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
+    finishDiscovery({ result: searchResult() }); await Promise.resolve();
+    expect(root.children).toHaveLength(0);
+    const event = click(new FakeElement('div')); windowEvents.emit('contextmenu', event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
+  it('shows exactly Buy, Add to cart, and × immediately while discovery is pending', async () => {
     await import('../src/extension/content');
     const event = click(new FakeElement('div')); windowEvents.emit('contextmenu', event);
     expect(event.preventDefault).toHaveBeenCalled();
     expect(popup().style.visibility).toBe('visible');
     expect(popup().popoverOpen).toBe(true);
     const buttons = popup().shadow!.querySelectorAll('button');
-    expect(buttons.filter(button => !button.hidden).map(button => button.textContent)).toEqual(['Save inspiration', 'Find products', '×']);
-    expect(button('Buy').disabled).toBe(true); expect(button('Add to cart').disabled).toBe(true);
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(targetMarker().hidden).toBe(true);
+    expect(buttons.map(button => button.textContent)).toEqual(['Buy', 'Add to cart', '×']);
+    expect(buttons.map(button => button.disabled)).toEqual([true, true, false]);
+    expect(targetMarker().hidden).toBe(false);
     expect(targetMarker().getAttribute('aria-hidden')).toBe('true');
     expect([targetMarker().style.left, targetMarker().style.top]).toEqual(['200px', '200px']);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_DISCOVER' }));
   });
   it('hides the toolbar only during screenshot preparation and keeps its crop bounded', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    findProducts();
     const requestId = sendMessage.mock.calls[0][0].requestId;
     const preparation = contentMessage('NEEDLE_PREPARE_CAPTURE', requestId);
     expect(popup().style.visibility).toBe('hidden');
@@ -167,45 +198,13 @@ describe('content-script action toolbar', () => {
   });
   it('cancels before discovery completes and ignores late results', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    findProducts();
     const marker = targetMarker();
-    button('×').emit('click');
+    popup().shadow!.querySelectorAll('button')[2].emit('click');
     expect(marker.hidden).toBe(true);
     expect(root.children).toHaveLength(0);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
     finishDiscovery({ result: { offers: [], interpretation: {} } });
     await Promise.resolve(); expect(root.children).toHaveLength(0);
-  });
-  it('saves inspiration without requesting discovery or screenshot preparation', async () => {
-    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('p')));
-    button('Save inspiration').emit('click');
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_SAVE' }));
-    expect(popup().style.visibility).toBe('visible');
-    await Promise.resolve(); await Promise.resolve();
-    expect(button('Saved').disabled).toBe(true);
-    expect(sendMessage.mock.calls.some(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toBe(false);
-  });
-  it('returns only selected semantic context for READ_CONTEXT', async () => {
-    await import('../src/extension/content');
-    const section = new FakeElement('section'), heading = new FakeElement('h2'), paragraph = new FakeElement('p');
-    heading.textContent = 'Meal prep'; paragraph.textContent = 'Pack lunch ahead of time'; section.append(heading, paragraph);
-    windowEvents.emit('contextmenu', click(paragraph));
-    button('Save inspiration').emit('click');
-    const requestId = sendMessage.mock.calls[0][0].requestId;
-    expect(await contentMessage('NEEDLE_READ_CONTEXT', requestId)).toEqual({ text: 'Pack lunch ahead of time', context: 'Meal prep' });
-    expect(popup().style.visibility).toBe('visible');
-  });
-  it('ignores a READ_CONTEXT request from another extension or a stale popup', async () => {
-    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('p')));
-    button('Save inspiration').emit('click');
-    const requestId = sendMessage.mock.calls[0][0].requestId;
-    const reply = vi.fn();
-    for (const listener of runtimeEvents) {
-      listener({ type: 'NEEDLE_READ_CONTEXT', requestId }, { id: 'b'.repeat(32) }, reply);
-      listener({ type: 'NEEDLE_READ_CONTEXT', requestId: 'stale' }, { id: extensionId }, reply);
-    }
-    expect(reply).not.toHaveBeenCalled();
   });
   it('leaves the native menu untouched for Shift, editable fields, untrusted events, and invalidated contexts', async () => {
     await import('../src/extension/content');
@@ -220,13 +219,10 @@ describe('content-script action toolbar', () => {
   it('re-injection replaces earlier listeners instead of triggering duplicate searches', async () => {
     await import('../src/extension/content'); vi.resetModules(); await import('../src/extension/content');
     windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    expect(sendMessage).not.toHaveBeenCalled();
-    findProducts();
     expect(sendMessage).toHaveBeenCalledTimes(1); expect(runtimeEvents.size).toBe(1);
   });
   it('answers a clarification in the same popup and retains the original selected preview', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    findProducts();
     const requestId = sendMessage.mock.calls[0][0].requestId;
     finishDiscovery({ result: searchResult(true), imageDataUrl: 'data:image/jpeg;base64,b3JpZ2luYWw=' });
     await Promise.resolve();
@@ -247,12 +243,11 @@ describe('content-script action toolbar', () => {
     expect(host.shadow!.querySelector('form')).toBeNull();
     expect(host.shadow!.querySelector('img')!.src).toBe('data:image/jpeg;base64,b3JpZ2luYWw=');
     expect(host.shadow!.querySelector('h2')!.textContent).toBe('Black F-style mandolin');
-    expect(button('Buy').disabled).toBe(false);
+    expect(host.shadow!.querySelectorAll('button')[0].disabled).toBe(false);
     expect(targetMarker(host).hidden).toBe(true);
   });
   it('keeps the question and typed answer when microphone access is unavailable', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    findProducts();
     finishDiscovery({ result: searchResult(true) }); await Promise.resolve();
     const form = popup().shadow!.querySelector('form')!, input = form.querySelector('input')!;
     input.value = 'The instrument on the left'; input.emit('input');
@@ -265,7 +260,6 @@ describe('content-script action toolbar', () => {
   });
   it('preserves an answer for retry after a failed clarification and ignores completion after cancellation', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    findProducts();
     finishDiscovery({ result: searchResult(true) }); await Promise.resolve();
     const host = popup(), form = host.shadow!.querySelector('form')!, input = form.querySelector('input')!;
     input.value = 'The instrument'; input.emit('input');
@@ -278,7 +272,7 @@ describe('content-script action toolbar', () => {
     sendMessage.mockImplementationOnce(() => new Promise(resolve => { finishAnswer = resolve; }));
     form.emit('submit', { preventDefault: vi.fn() });
     expect(targetMarker(host).hidden).toBe(false);
-    button('×').emit('click');
+    host.shadow!.querySelectorAll('button')[2].emit('click');
     expect(targetMarker(host).hidden).toBe(true);
     finishAnswer({ result: searchResult() }); await Promise.resolve();
     expect(root.children).toHaveLength(0);
@@ -292,7 +286,6 @@ describe('content-script action toolbar', () => {
     vi.useFakeTimers();
     vi.stubGlobal('innerWidth', width);
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div'), { clientX: x, clientY: y }));
-    findProducts();
     const host = popup(), anchor = [host.style.left, host.style.top];
     expect(anchor).toEqual([`${left}px`, `${top}px`]);
     expect(host.style.getPropertyValue('--needle-max-height')).toBe(`${maxHeight}px`);

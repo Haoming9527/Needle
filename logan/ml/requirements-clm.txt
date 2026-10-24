@@ -1,0 +1,4 @@
+# Optional Apple Silicon CLM backend. The lightweight backend is cross-platform.
+-r requirements.txt
+mlx==0.32.4
+mlx-lm==0.32.2

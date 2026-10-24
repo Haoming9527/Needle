@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import type { CapturedSelection, ClarifyRequest, SearchResponse } from '../../shared/types';
+import { preferenceStorage } from './preference-storage';
 
 const question: SearchResponse = {
   sessionId: 'c41004a6-a715-444d-9a8c-6c61a6418b13', mode: 'sample', agentMode: 'ai', offers: [], warnings: [],
@@ -8,7 +9,7 @@ const question: SearchResponse = {
 const photo = await fetch('/assets/photos/podcast.png').then(response => response.blob());
 const imageDataUrl = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(photo); });
 const captured: CapturedSelection = { id: 'clarification-preview', selection: { imageDataUrl, focus: { x: 0.3, y: 0.55 } }, needsCrop: false, result: question };
-Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { runtime: { id: 'clarification-preview' }, storage: { session: { get: async () => ({ 'needle.selection': captured }), remove: async () => {} }, onChanged: { addListener() {}, removeListener() {} } } } });
+Object.defineProperty(globalThis, 'chrome', { configurable: true, value: { runtime: { id: 'clarification-preview' }, storage: { ...preferenceStorage(), session: { get: async () => ({ 'needle.selection': captured }), remove: async () => {} } } } });
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input, init) => {
   const url = String(input);

@@ -17,10 +17,10 @@ Cursor attention is an additional context signal, not proof of desire or a purch
 
 ## Status — 25 October 2026
 
-This is a pre-merge package for `codex/connected-intent-demo` in [PR #1](https://github.com/Haoming9527/Needle/pull/1). The local integration worktree uses `codex/ryan-part4-package`; it is not a separate review PR. Branch presence, a local build, or a mock-provider test does not mean it has merged, deployed, or completed a live AI rehearsal. Check the pull request and [verification ledger](../VERIFICATION.md) for the latest evidence. Live synthesis and installed-Chrome rehearsal remain release checks.
+This is a pre-merge package for `codex/connected-intent-demo` in [PR #1](https://github.com/Haoming9527/Needle/pull/1). The review branch now integrates main through `c9e0439`. Branch presence, a local build, or a mock-provider test does not mean it has merged, deployed, or completed a live AI rehearsal. Check the pull request and [verification ledger](../VERIFICATION.md) for the latest evidence. Live synthesis and installed-Chrome rehearsal remain release checks.
 
 The current browsing demonstration measures two prepared source identities on the **same local origin**. It demonstrates a cross-source flow; arbitrary cross-site attention collection is not implemented. The AI path can assess bounded observations beyond the prepared recipe/commute topics. A separately labelled prepared rule-based demo remains available without a key.
 
-Logan’s decision/model changes are a separate [PR #2](https://github.com/Haoming9527/Needle/pull/2), not an integrated bridge to Part 4. Other team members retain ownership of their existing capture, search, voice, and seller work.
+Logan’s decision/model changes from [PR #2](https://github.com/Haoming9527/Needle/pull/2) are now merged into main and included here, but are not a connected bridge to Part 4. Other team members retain ownership of their existing capture, search, voice, and seller work.
 
 The [GitHub Wiki](https://github.com/Haoming9527/Needle/wiki) provides the team-facing guide. Its versioned source is in `wiki/`; publish those files as top-level wiki pages when updating it. Root-level documentation remains the team’s shared reference.

@@ -2,7 +2,7 @@ import { readFile, access, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 const root = resolve('dist/extension');
 const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
-for (const file of [manifest.background.service_worker, manifest.side_panel.default_path, 'demo.html', 'x-demo.html', ...(manifest.content_scripts ?? []).flatMap(script => script.js), ...Object.values(manifest.icons)]) await access(join(root, file));
+for (const file of [manifest.background.service_worker, manifest.side_panel.default_path, ...(manifest.content_scripts ?? []).flatMap(script => script.js), ...Object.values(manifest.icons)]) await access(join(root, file));
 if (manifest.manifest_version !== 3) throw new Error('Manifest V3 is required.');
 if (manifest.permissions.includes('<all_urls>')) throw new Error('URL permission must be in host_permissions.');
 // Chrome requires <all_urls> for captureVisibleTab initiated by a page gesture.
@@ -15,6 +15,7 @@ async function inspect(dir) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) await inspect(path);
     else if (/\.(js|json|html)$/.test(entry.name)) {
+      if (entry.name.endsWith('.html') && path !== join(root, 'panel.html')) throw new Error('Only the shopping panel may ship as an extension HTML page.');
       const text = await readFile(path, 'utf8');
       if (/sk-proj-[A-Za-z0-9_-]{16,}/.test(text)) throw new Error('Credential-like string in extension output.');
       if (/import\s.*(?:https?:|node:)/.test(text)) throw new Error('Remote or Node module import in extension.');
@@ -22,4 +23,4 @@ async function inspect(dir) {
   }
 }
 await inspect(root);
-console.log('Extension package verified: manifest, worker, content script, panel, inspiration pages, icons, and bundled scripts.');
+console.log('Extension package verified: manifest, worker, content script, panel, icons, and bundled scripts.');

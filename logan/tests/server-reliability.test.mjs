@@ -23,6 +23,7 @@ test(
     try {
       for (const name of [
         "server.mjs",
+        "decision-client.mjs",
         "algorithm.mjs",
         "sample.mjs",
         "public",

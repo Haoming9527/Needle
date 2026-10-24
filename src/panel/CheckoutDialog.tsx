@@ -5,7 +5,7 @@ import { offerSource } from '../../shared/offer-source';
 import { apiRequest } from './api';
 import { formatMoney, ProductImage } from './ui';
 
-const legacyPhotos: Record<string, string> = { headphones: 'headphones', bag: 'bag', lamp: 'lamp', microphone: 'podcast', 'boom-arm': 'boom-arm', laptop: 'laptop', podcast: 'podcast', scene: 'workspace' };
+const legacyPhotos: Record<string, string> = { headphones: 'headphones', bag: 'bag', lamp: 'lamp', microphone: 'podcast', 'boom-arm': 'boom-arm', laptop: 'laptop', podcast: 'podcast' };
 export function assetUrl(url: string | null | undefined) {
   const legacy = url?.match(/^\/?assets\/([\w-]+)\.svg$/)?.[1];
   if (legacy && legacyPhotos[legacy]) return `assets/photos/${legacyPhotos[legacy]}.png`;

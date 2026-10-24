@@ -2,11 +2,11 @@
 
 [Part 4 home](README.md) · [Demo](DEMO.md) · [Shared verification ledger](../VERIFICATION.md)
 
-Review snapshot: 25 October 2026. The integrated tree passes **301 tests in 30 files**, TypeScript, the production build, and extension package validation. This document separates implementation from independent runtime verification; it does not certify a deployment.
+Review snapshot: 25 October 2026. The integrated tree passes **318 tests in 32 files**, TypeScript, the production build, and extension package validation. This document separates implementation from independent runtime verification; it does not certify a deployment.
 
 | Priority | Remaining work | Completion evidence |
 | --- | --- | --- |
-| Before merge | Review final integrated diff and capture validation evidence | Voice, glow, Decisions, and Save/Find preserved; final checks recorded by integrator |
+| Before merge | Review final integrated diff and capture validation evidence | Voice, glow, Decisions, and automatic right-click search preserved; final checks recorded by integrator |
 | Before demo | Run synthesis with an actual configured model and realistic latency | Observed hypothesis or abstention, grounded citations, successful correction; no key exposure |
 | Before demo | Rehearse installed Chrome capture/search/clarification and voice | Manual run against built extension; native mic/audio checked where presented |
 | Before demo | Verify result withdrawal on pause, removal, reset, correction, and delayed responses | Focused tests plus one visible rehearsal |
@@ -16,11 +16,11 @@ Review snapshot: 25 October 2026. The integrated tree passes **301 tests in 30 f
 
 ## What exists locally
 
-The integrated package preserves the latest voice, glow, Decisions, and Save/Find UI. Saved-item focus refresh is fixed. Purchase-readiness attribution now binds to the exact server-owned hypothesis through the recommendation session, supports tagless cart actions, and excludes actions from an old objective.
+The integrated package preserves the latest voice, glow, Decisions, and automatic right-click search UI. Saved-item focus refresh is fixed. Purchase-readiness attribution now binds to the exact server-owned hypothesis through the recommendation session, supports tagless cart actions, and excludes actions from an old objective.
 
 Part 4 has measured attention, consent-gated local context, an explicit structured AI synthesis path, evidence checks, abstention, correction, and confirmation-gated discovery. Automated tests cover provider/output validation and stale-result rejection with controlled providers. Those tests establish behavior under the tested conditions; they do not verify live model quality or credential availability.
 
-The existing cursor/search workflow remains a core team feature. Latest main reviewed at `b2d4393` includes newer voice work (`be51cdb`); its integrated behavior has passing automated checks on the package branch, with live rehearsal still pending. Saved items/collections and simulated group interest are supporting features, not proof of purchases, multi-user adoption, or a seller integration.
+The existing cursor/search workflow remains a core team feature. Latest main integrated at `c9e0439` includes v0.8 shopping controls and merged PR #2; its integrated behavior has passing automated checks on the package branch, with live rehearsal still pending. Saved items/collections and simulated group interest are supporting features, not proof of purchases, multi-user adoption, or a seller integration.
 
 ## Additional supporting-flow follow-ups
 
@@ -30,7 +30,7 @@ The existing cursor/search workflow remains a core team feature. Latest main rev
 
 These are supporting-flow backlog items; they should not be represented as finished by the Part 4 tests.
 
-## Logan’s separate PR #2
+## Logan’s merged PR #2
 
 Reviewed remote snapshot: `bb5a666` on `codex/logan-decision-review`. It adds a local decision service, E5-based experiments, and an optional `/api/decision` adapter. The existing seller workspace and lexical ranking remain separate from Part 4. No observed wiring sends cursor/context observations into this service or replaces the existing `/api/rank` and `/api/discover` flow with learned ranking.
 

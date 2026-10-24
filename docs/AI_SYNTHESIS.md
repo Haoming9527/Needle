@@ -15,7 +15,7 @@ Without an AI key, Discover explains why synthesis is unavailable. **Show prepar
 
 | Stage | Owner | Contract |
 | --- | --- | --- |
-| Capture | Existing Save / Find and controlled attention producer | Capture, crop, clarification and ranking workflow preserved; opted-in tagless saved context now also reaches memory |
+| Capture | Automatic right-click search, panel wishlist and controlled attention producer | Capture, crop, clarification and ranking workflow preserved; opted-in tagless saved context now also reaches memory |
 | Bounded snapshot | `IntentStore.synthesisSnapshot()` | Up to 12 source-balanced observations; complete measured, observed or fixture cohort; no raw history or screenshots |
 | Synthesis | `POST /intent/synthesize` and `AIIntentSynthesizer` | Explicit action, consent and current fingerprint required; structured hypothesis or abstention; no tools |
 | Review | `IntentWorkspace` | Observed facts, proposed need, cited relevance summaries and uncertainty remain distinct; confirm, dismiss or correct |

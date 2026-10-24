@@ -9,6 +9,6 @@ This wiki currently documents **Ryan — Part 4: Context to intent**. Existing c
 - [[Demo and setup|Demo-and-Setup]] — local setup and presentation sequence.
 - [[Integration and readiness|Integration-and-Readiness]] — team boundaries, open checks, and separate model work.
 
-**Status:** pre-merge package in [PR #1](https://github.com/Haoming9527/Needle/pull/1), with 301 tests and the production build passing. Publication of these pages does not imply the code is merged or deployed. Live AI synthesis and installed-Chrome checks must be recorded separately from automated tests.
+**Status:** pre-merge package in [PR #1](https://github.com/Haoming9527/Needle/pull/1), with 318 tests and the production build passing. Publication of these pages does not imply the code is merged or deployed. Live AI synthesis and installed-Chrome checks must be recorded separately from automated tests.
 
 [Repository](https://github.com/Haoming9527/Needle) · [Part 4 source documentation](https://github.com/Haoming9527/Needle/blob/codex/connected-intent-demo/docs/ryan/README.md)

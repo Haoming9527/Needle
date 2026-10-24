@@ -80,3 +80,81 @@ describe('SQLite catalog, cart, and purchase history', () => {
     expect(readFileSync(legacy, 'utf8')).toBe(original);
   });
 });
+
+describe('collection clear controls', () => {
+  it('clears only cart entries and preserves history, catalog, and search sessions', async () => {
+    const server = app(); const selection = await find(server);
+    await request(server).post('/orders').send({ ...selection, confirmationId: 'keep-history-123', confirmed: true }).expect(201);
+    await request(server).post('/cart').send(selection).expect(200);
+    const catalogBefore = server.locals.database.catalog();
+    await request(server).post('/cart/clear').send({}).expect(200).expect(res => expect(res.body).toEqual({ items: [] }));
+    await request(server).get('/cart').expect(200).expect(res => expect(res.body.items).toEqual([]));
+    await request(server).get('/orders').expect(200).expect(res => expect(res.body.orders).toHaveLength(1));
+    expect(server.locals.database.catalog()).toEqual(catalogBefore);
+    await request(server).post('/cart').send(selection).expect(200).expect(res => expect(res.body.items).toHaveLength(1));
+  });
+
+  it('clears only order history and blocks stale confirmation replay without recreating a receipt', async () => {
+    const server = app(); const selection = await find(server);
+    const purchase = { ...selection, confirmationId: 'cleared-purchase-123', confirmed: true };
+    await request(server).post('/orders').send(purchase).expect(201);
+    await request(server).post('/cart').send(selection).expect(200);
+    const catalogBefore = server.locals.database.catalog();
+    await request(server).post('/orders/clear').send({}).expect(200).expect(res => expect(res.body).toEqual({ orders: [] }));
+    await request(server).get('/orders').expect(200).expect(res => expect(res.body.orders).toEqual([]));
+    await request(server).get('/cart').expect(200).expect(res => expect(res.body.items).toHaveLength(1));
+    expect(server.locals.database.catalog()).toEqual(catalogBefore);
+    await request(server).post('/orders').send(purchase).expect(410).expect(res => expect(res.body.error.code).toBe('ORDER_CLEARED'));
+    await request(server).post('/orders').send({ ...purchase, quantity: 2 }).expect(409);
+    await request(server).get('/orders').expect(200).expect(res => expect(res.body.orders).toEqual([]));
+    await request(server).post('/orders').send({ ...purchase, confirmationId: 'new-purchase-after-clear' }).expect(201);
+  });
+
+  it('keeps both collections cleared and confirmation guards intact after restart', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'needle-clear-')); folders.push(directory);
+    const databaseFile = join(directory, 'needle.sqlite'); const first = app({ databaseFile });
+    const selection = await find(first);
+    const purchase = { ...selection, confirmationId: 'persist-clear-123', confirmed: true };
+    await request(first).post('/orders').send(purchase).expect(201);
+    await request(first).post('/cart').send(selection).expect(200);
+    await request(first).post('/cart/clear').send({}).expect(200);
+    await request(first).post('/orders/clear').send({}).expect(200);
+    const second = app({ databaseFile });
+    await request(second).get('/cart').expect(200).expect(res => expect(res.body.items).toEqual([]));
+    await request(second).get('/orders').expect(200).expect(res => expect(res.body.orders).toEqual([]));
+    await request(second).post('/orders').send(purchase).expect(410);
+    await request(second).post('/cart/clear').send({}).expect(200);
+    await request(second).post('/orders/clear').send({}).expect(200);
+    await request(second).post('/refine').send({ sessionId: selection.sessionId, instruction: 'under KRW 100000' }).expect(200);
+  });
+
+  it('requires a strict empty JSON object and retains local-origin protection', async () => {
+    const server = app(); const selection = await find(server);
+    await request(server).post('/cart').send(selection).expect(200);
+    await request(server).post('/orders').send({ ...selection, confirmationId: 'validation-keep-123', confirmed: true }).expect(201);
+    for (const path of ['/cart/clear', '/orders/clear']) {
+      await request(server).post(path).send({ all: true }).expect(400);
+      await request(server).post(path).send([]).expect(400);
+      await request(server).post(path).set('Content-Type', 'application/json').send('null').expect(400);
+      await request(server).post(path).type('form').send({}).expect(415);
+      await request(server).post(path).set('Origin', 'https://unrelated.example').send({}).expect(403);
+      await request(server).post(path).set('Host', 'attacker.example').send({}).expect(403);
+    }
+    await request(server).get('/cart').expect(200).expect(res => expect(res.body.items).toHaveLength(1));
+    await request(server).get('/orders').expect(200).expect(res => expect(res.body.orders).toHaveLength(1));
+  });
+
+  it('does not import legacy receipts again after history is cleared', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'needle-clear-legacy-')); folders.push(directory);
+    const legacy = join(directory, 'orders.json'); const databaseFile = join(directory, 'needle.sqlite');
+    const confirmationId = 'legacy-cleared-123';
+    const original = JSON.stringify([[confirmationId, { fingerprint: 'old-fingerprint', order: { id: 'NDL-LEGACY', confirmationId, createdAt: new Date().toISOString(), status: 'simulated', title: 'Old receipt' } }]]);
+    writeFileSync(legacy, original);
+    const first = app({ databaseFile, orderFile: legacy });
+    await request(first).get('/orders').expect(200).expect(res => expect(res.body.orders).toHaveLength(1));
+    await request(first).post('/orders/clear').send({}).expect(200);
+    const second = app({ databaseFile, orderFile: legacy });
+    await request(second).get('/orders').expect(200).expect(res => expect(res.body.orders).toEqual([]));
+    expect(readFileSync(legacy, 'utf8')).toBe(original);
+  });
+});

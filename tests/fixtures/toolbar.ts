@@ -8,7 +8,7 @@ type Reply = { geometry?: MediaGeometry; text?: string; context?: string; error?
 type Listener = (message: Message, sender: { id: string }, respond: (value: Reply) => void) => unknown;
 const runtimeId = 'a'.repeat(32);
 const listeners = new Set<Listener>();
-const counts = { save: 0, discover: 0, clarify: 0, cart: 0, buy: 0, cancel: 0, siteMenu: 0 };
+const counts = { discover: 0, clarify: 0, cart: 0, buy: 0, cancel: 0, siteMenu: 0 };
 const askQuestion = new URLSearchParams(location.search).has('clarify');
 const searchDelay = new URLSearchParams(location.search).has('loading') ? 30_000 : 800;
 const cancelled = new Set<string>();
@@ -16,7 +16,7 @@ const selections = new Map<string, SearchResponse>();
 const status = document.getElementById('bridge-status')!;
 const detail = document.getElementById('bridge-detail')!;
 const counter = document.getElementById('bridge-counts')!;
-function count() { counter.textContent = `Save: ${counts.save} · Discover: ${counts.discover} · Clarify: ${counts.clarify} · Cart: ${counts.cart} · Buy: ${counts.buy} · Cancel: ${counts.cancel} · Site menu: ${counts.siteMenu}`; }
+function count() { counter.textContent = `Discover: ${counts.discover} · Clarify: ${counts.clarify} · Cart: ${counts.cart} · Buy: ${counts.buy} · Cancel: ${counts.cancel} · Site menu: ${counts.siteMenu}`; }
 function report(message: string, data?: unknown) { status.textContent = message; if (data !== undefined) detail.textContent = JSON.stringify(data, null, 2); count(); }
 function emit(type: string, requestId: string): Promise<Reply> {
   return new Promise(resolve => {
@@ -47,18 +47,12 @@ async function sendMessage(message: Message): Promise<unknown> {
   if (message.type === 'NEEDLE_OVERLAY_CANCEL') {
     counts.cancel++; cancelled.add(id); selections.delete(id); report('Cancelled through the actual popup.'); return { ok: true };
   }
-  if (message.type === 'NEEDLE_OVERLAY_SAVE') {
-    const context = await emit('NEEDLE_READ_CONTEXT', id);
-    if (context.error) return context;
-    counts.save++; report('Saved through the mock bridge. No screenshot or discovery occurred.', context);
-    return { ok: true };
-  }
   if (message.type === 'NEEDLE_OVERLAY_DISCOVER') {
     counts.discover++; report('Gesture received. Preparing the selected area…');
     const prepared = await emit('NEEDLE_PREPARE_CAPTURE', id);
     await emit('NEEDLE_CAPTURE_FINISHED', id);
     if (prepared.error) { report(prepared.error); return prepared; }
-    report('Mock result pending. The selected action is loading; Cancel remains available.', { text: prepared.text ?? null, geometry: prepared.geometry });
+    report('Mock result pending. The three controls should already be visible.', { text: prepared.text ?? null, geometry: prepared.geometry });
     await new Promise(resolve => window.setTimeout(resolve, searchDelay));
     if (cancelled.has(id)) return { error: 'Cancelled.' };
     const result = sample(prepared.text);
@@ -93,6 +87,7 @@ async function sendMessage(message: Message): Promise<unknown> {
   return { error: 'Unsupported fixture message.' };
 }
 
+const { preferenceStorage } = await import('./preference-storage');
 const existingChrome = (globalThis as { chrome?: typeof chrome }).chrome;
 if (existingChrome?.runtime?.id) {
   report('A real extension runtime exists here. Fixture bridge was not installed.');
@@ -108,6 +103,7 @@ if (existingChrome?.runtime?.id) {
   };
   Object.defineProperty(globalThis, 'chrome', { configurable: true, value: {
     ...existingChrome,
+    storage: preferenceStorage(),
     runtime: {
       id: runtimeId, getManifest: () => ({ version: '0.4.0-fixture' }), sendMessage,
       onMessage: { addListener: (listener: Listener) => listeners.add(listener), removeListener: (listener: Listener) => listeners.delete(listener) },
@@ -131,4 +127,4 @@ const canvas = document.getElementById('canvas-target') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d');
 const lamp = new Image();
 lamp.onload = () => { if (ctx) { ctx.fillStyle = '#edf2f8'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.drawImage(lamp, 0, 0, canvas.width, canvas.height); } };
-lamp.src = '/assets/lamp.svg';
+lamp.src = '/assets/photos/lamp.png';

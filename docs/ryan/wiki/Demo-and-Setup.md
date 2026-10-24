@@ -1,6 +1,6 @@
 # Demo and setup
 
-Use Node 22.13 or later. In the repository root, run `npm ci`, copy `.env.example` to `.env` only if no local `.env` exists, then run `npm run dev`. Open `http://127.0.0.1:5173/panel.html` and select **Discover**.
+Use Node 22.13 or later. In the repository root, run `npm ci`, copy `.env.example` to `.env` only if no local `.env` exists, then run `npm run dev`. Open `http://127.0.0.1:5173/panel.html` and select **Discover**. Find stays the default. Reading pages are development-only and are excluded from the extension build; opted-in measurement runs independently of the Discover view.
 
 Privately configure `OPENAI_API_KEY` for direct-provider synthesis. Never include its value in wiki pages, logs, screenshots, chat, or commits. Preserve the team’s model configuration. Use an isolated rehearsal database. Optional live search configuration is separate from synthesis.
 

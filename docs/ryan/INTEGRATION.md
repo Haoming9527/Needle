@@ -6,7 +6,7 @@
 
 | Boundary | Contract to preserve |
 | --- | --- |
-| Cursor → context | Save is explicit; capture only the intended context. Opening a cursor menu must not trigger product discovery. Attention is a separate opt-in collector. |
+| Cursor → context | Right-click automatically discovers products and retains Buy / Add to cart / ×. Ambient attention is a separate opt-in collector; it does not depend on manually saving or opening Discover. |
 | Context → synthesis | Server-selected bounded snapshot, current context key, at least two supported sources, explicit action; no discovery tools. |
 | Synthesis → user | Evidence IDs, uncertainty, model/rule provenance, abstention, confirmation and correction controls. |
 | User → discovery | Confirm the current hypothesis; server derives query and constraints. Changed evidence/feedback invalidates previous results. |

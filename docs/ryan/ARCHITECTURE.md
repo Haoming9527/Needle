@@ -21,4 +21,4 @@ The flow is: **opt in → measure → review saved context → explicitly connec
 
 Correction withdraws the previous confirmation. A revised hypothesis requires confirmation again. Pausing memory, removing evidence, resetting, or changing feedback invalidates stale work; delayed responses must not restore an old recommendation. These are server checks as well as UI cleanup, with mocked-provider integration tests.
 
-The ordinary cursor **Save inspiration** and **Find products** paths stay available. Part 4 does not replace screenshot identification, crop clarification, explicit searches, or voice interactions. Prepared rules and model output carry different provenance; a provider failure must not silently become a rule-generated “AI” answer.
+The ordinary cursor automatically searches and keeps **Buy / Add to cart / ×**. Find is the default; Discover and Saved are optional panel views. Part 4 does not replace screenshot identification, crop clarification, explicit searches, or voice interactions. Prepared rules and model output carry different provenance; a provider failure must not silently become a rule-generated “AI” answer.

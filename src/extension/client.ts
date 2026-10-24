@@ -1,4 +1,5 @@
 import type { CapturedSelection } from '../../shared/types';
+export { getShoppingEnabled, setShoppingEnabled, subscribeToShoppingEnabled } from './preferences';
 
 export const API_BASE = 'http://127.0.0.1:4318';
 export const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.id;
