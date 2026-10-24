@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { MAX_SYNTHESIS_OBSERVATIONS, type SynthesisSnapshot, type SynthesisOutput, type IntentSynthesisState } from '../shared/synthesis.js';
 import type { DatabaseSync } from 'node:sqlite';
 import type { IntentAction, IntentConnection, IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
@@ -72,8 +72,9 @@ function connectionFor(first: IntentObservation, second: IntentObservation, key:
 }
 
 /** Local single-user evidence memory. Scores are explainable heuristic points, never probabilities. */
-interface StoredSynthesis { contextKey: string; result: SynthesisOutput; generatedAt: string; correction?: string; constraints?: string; model: string; promptVersion: string }
+interface StoredSynthesis { generation?: string; contextKey: string; result: SynthesisOutput; generatedAt: string; correction?: string; constraints?: string; model: string; promptVersion: string }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const modelHypothesisId = (saved: StoredSynthesis) => `ai-${digest([saved.contextKey, saved.result, saved.correction ?? '', ...(saved.generation ? [saved.generation] : [])]).slice(0, 48)}`;
 
 export class IntentStore {
   private synthesisConfig?: { available: boolean; model: string; promptVersion: string };
@@ -155,14 +156,14 @@ export class IntentStore {
       const row = this.db.prepare('SELECT data FROM intent_syntheses WHERE id=1').get();
       const previous = row ? parse<StoredSynthesis>(row.data) : undefined;
       if (previous?.contextKey === expectedContextKey && previous.result.outcome === 'hypothesis') {
-        const priorId = `ai-${digest([previous.contextKey, previous.result, previous.correction ?? '']).slice(0, 48)}`;
+        const priorId = modelHypothesisId(previous);
         const feedbackRow = this.db.prepare('SELECT data FROM intent_feedback WHERE id=?').get(priorId);
         const priorFeedback = feedbackRow ? parse<StoredIntentFeedback>(feedbackRow.data) : undefined;
         const bound = matchesSupport(priorFeedback, previous.result.evidence.map(value => value.observationId));
         constraints = (bound ? priorFeedback?.constraints : undefined) ?? previous.constraints;
       }
     }
-    const saved: StoredSynthesis = { contextKey: expectedContextKey, result, generatedAt: new Date().toISOString(), correction, constraints, model: this.synthesisConfig.model, promptVersion: this.synthesisConfig.promptVersion };
+    const saved: StoredSynthesis = { generation: randomUUID(), contextKey: expectedContextKey, result, generatedAt: new Date().toISOString(), correction, constraints, model: this.synthesisConfig.model, promptVersion: this.synthesisConfig.promptVersion };
     this.db.prepare('INSERT INTO intent_syntheses VALUES (1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(saved));
     this.bumpRuntime();
     return this.getState();
@@ -171,7 +172,7 @@ export class IntentStore {
     const result = saved.result;
     const supporting = result.evidence.map(value => observations.find(item => item.id === value.observationId)!);
     const evidenceIds = supporting.map(value => value.id);
-    const id = `ai-${digest([saved.contextKey, result, saved.correction ?? '']).slice(0, 48)}`;
+    const id = modelHypothesisId(saved);
     const stored = feedback.get(id);
     const response = matchesSupport(stored, evidenceIds) ? stored : undefined;
     const confirmed = response?.action === 'confirm';

@@ -116,4 +116,20 @@ describe('persisted grounded context synthesis', () => {
     expect(corrected.constraints).toBeUndefined();
   });
 
+  it('never resurrects confirmation when an uncached result cycles back to identical content and correction', () => {
+    const { store } = setup();
+    const firstA = save(store, output, 'Prefer lightweight equipment').hypotheses[0]!;
+    store.feedback(firstA.id, { action: 'confirm', constraints: 'Under USD 100' });
+    const resultB = { ...output, label: 'Viewing distant scenery', productQuery: 'travel binoculars' };
+    const secondB = save(store, resultB, 'I prefer scenery').hypotheses[0]!;
+    store.feedback(secondB.id, { action: 'confirm' });
+    const anotherA = save(store, output, 'Prefer lightweight equipment').hypotheses[0]!;
+    expect(anotherA.id).not.toBe(firstA.id);
+    expect(anotherA).toMatchObject({ interest: 'tentative', readiness: 'exploring', constraints: 'Under USD 100' });
+    expect(anotherA.connection.productRationale).toBeUndefined();
+    // Cached reads retain the generation and its new confirmation.
+    store.feedback(anotherA.id, { action: 'confirm' });
+    expect(store.getState().hypotheses[0]).toMatchObject({ id: anotherA.id, interest: 'confirmed' });
+  });
+
 });
