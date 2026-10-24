@@ -6,7 +6,10 @@ import { identifyWithAI } from '../server/ai.js';
 
 const config: ServerConfig = { exaKey: '', openAiKey: 'test-only', model: 'test-model', defaultMode: 'sample', timeoutMs: 45000, orderFile: null };
 const item = { name: 'Black podcast microphone', productType: 'microphone', brand: null, model: null, color: 'Black', attributes: ['Dynamic'], queries: ['podcast microphone'], needsClarification: false, clarification: null };
-const message = (data: unknown) => ({ type: 'message', id: 'message-1', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(data), annotations: [] }] });
+const message = (data: unknown) => {
+  const output = data && typeof data === 'object' && 'offers' in data ? { excluded: [], ...data } : data;
+  return { type: 'message', id: 'message-1', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify(output), annotations: [] }] };
+};
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Vercel AI SDK catalog agent', () => {
