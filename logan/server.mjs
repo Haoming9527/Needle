@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {decideContent} from './decision-client.mjs';
 import {readFileSync,mkdirSync,existsSync,writeFileSync,renameSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
@@ -31,6 +32,9 @@ const server=http.createServer(async(req,res)=>{
   if(req.method==='POST'){
    if(!req.headers['content-type']?.startsWith('application/json'))return send(415,{error:'JSON_REQUIRED'});
    const b=await body(req);
+   if(u.pathname==='/api/decision'){
+    try{return send(200,await decideContent(b));}catch{return send(503,{error:'DECISION_SERVICE_UNAVAILABLE',detail:'Start the local learned model service on port 4321.'});}
+   }
    if(u.pathname==='/api/rank'){
     if(typeof b.query!=='string'||b.query.length>1000||!b.weights||typeof b.weights!=='object')return send(400,{error:'INVALID_QUERY'});
     return send(200,{results:rank(all(),b),algorithm:'Needle HookRank v1'});

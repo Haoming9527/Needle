@@ -1,0 +1,79 @@
+{
+  "scope": "60 synthetic held-out rows through deployed HTTP service incl target/truncation policy and attribute extraction; no training changes",
+  "health": {
+    "status": "ok",
+    "model": "needle-small-decision-v1",
+    "device": "mps",
+    "training": "fitted heads on frozen E5; not CLM-8B",
+    "routes": [
+      "review_analysis",
+      "product_search",
+      "clarify"
+    ]
+  },
+  "n": 60,
+  "accuracy": 0.9333333333333333,
+  "macro_f1": 0.9333333333333332,
+  "labels": [
+    "review_analysis",
+    "product_search",
+    "clarify"
+  ],
+  "confusion_matrix": [
+    [
+      20,
+      0,
+      0
+    ],
+    [
+      0,
+      18,
+      2
+    ],
+    [
+      0,
+      2,
+      18
+    ]
+  ],
+  "http_inference_p50_ms": 10.366583002905827,
+  "http_inference_p95_ms": 39.56936809699965,
+  "cache_hits": 0,
+  "language_latency": {
+    "en": {
+      "n": 30,
+      "p50_ms": 11.88841700059129,
+      "p95_ms": 69.11388910375518
+    },
+    "ko": {
+      "n": 30,
+      "p50_ms": 8.64520850154804,
+      "p95_ms": 30.619174701860167
+    }
+  },
+  "contract_checks": [
+    "missing target -> clarify",
+    "invalid target -> 400",
+    "rank preserves original IDs"
+  ],
+  "examples": [
+    {
+      "id": "en-r01",
+      "expected": "review_analysis",
+      "route": "review_analysis",
+      "elapsed_ms": 486.8043329915963
+    },
+    {
+      "id": "en-r02",
+      "expected": "review_analysis",
+      "route": "review_analysis",
+      "elapsed_ms": 30.462208000244573
+    },
+    {
+      "id": "en-r03",
+      "expected": "review_analysis",
+      "route": "review_analysis",
+      "elapsed_ms": 30.668666993733495
+    }
+  ]
+}

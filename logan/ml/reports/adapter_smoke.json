@@ -1,0 +1,49 @@
+{
+  "health": {
+    "status": "ok",
+    "model": "needle-small-decision-v1",
+    "device": "mps",
+    "training": "fitted heads on frozen E5; not CLM-8B",
+    "attributes_available": true,
+    "ranking_available": true,
+    "routes": [
+      "review_analysis",
+      "product_search",
+      "clarify"
+    ]
+  },
+  "proxy_url": "http://127.0.0.1:4390/api/decision",
+  "status": 200,
+  "result": {
+    "route": "review_analysis",
+    "raw_route": "review_analysis",
+    "scores": {
+      "clarify": 0.0006219471455508794,
+      "product_search": 0.046834626594447835,
+      "review_analysis": 0.9525434262600012
+    },
+    "confidence": 0.9525434262600012,
+    "score_semantics": "uncalibrated classifier score, not purchase probability",
+    "abstained": false,
+    "margin": 0.9057087996655534,
+    "attributes": [],
+    "model": "needle-small-decision-v1",
+    "encoder": "intfloat/multilingual-e5-small",
+    "encoder_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "training": "fitted heads; frozen encoder",
+    "truncated": false,
+    "attribute_limitations": "Target association is model-inferred, not verified entity grounding; quotes are source sentences.",
+    "elapsed_ms": 83.916,
+    "next_action": "analyze_target_review_evidence",
+    "sourceKind": "transcript",
+    "requestId": "",
+    "cache_hit": false,
+    "service_elapsed_ms": 83.957,
+    "limitations": [
+      "Synthetic-data head fine-tuning; no measured real-user retention lift.",
+      "Text-only: extraction and visual identity are upstream team responsibilities.",
+      "No product endorsement inferred for incidental appearances."
+    ]
+  },
+  "scope": "one integration smoke request; not another benchmark"
+}
