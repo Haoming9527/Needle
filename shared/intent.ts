@@ -1,8 +1,10 @@
+import type { IntentCaptureMetadata } from './attention';
 export const intentActions = ['dwell', 'revisit', 'save', 'find', 'wishlist', 'cart', 'group_interest'] as const;
 export const intentTags = ['meal-prep', 'cycle-commute', 'recording', 'audio', 'small-space', 'portable'] as const;
 export type IntentAction = typeof intentActions[number];
 export type IntentTag = typeof intentTags[number];
 export interface IntentObservationInput {
+  capture?: IntentCaptureMetadata;
   id: string; action: IntentAction; sourceOrigin: string; sourceTitle: string; summary: string;
   tags: IntentTag[]; provenance: 'observed' | 'demo_fixture'; entityKey?: string; collectionId?: string;
 }
@@ -10,6 +12,7 @@ export interface IntentObservation extends IntentObservationInput { createdAt: s
 export type RecommendationKey = 'portable-lunch' | 'home-meal-prep' | 'recording' | 'work-calls';
 export interface IntentConnection {
   observations: Array<{
+    capture?: IntentCaptureMetadata;
     observationId: string;
     sourceTitle: string;
     action: IntentAction;
@@ -31,7 +34,7 @@ export interface IntentHypothesis {
   evidencePoints: number; evidenceIds: string[]; explanation: string; status: 'active' | 'dismissed';
   constraints?: string; recommendationKey: RecommendationKey;
 }
-export interface IntentState { consent: boolean; observations: IntentObservation[]; hypotheses: IntentHypothesis[] }
+export interface IntentState { consent: boolean; attentionConsent: boolean; observations: IntentObservation[]; hypotheses: IntentHypothesis[] }
 export interface IntentFeedback { action: 'confirm' | 'dismiss' | 'correct'; correction?: 'home-meal-prep' | 'work-calls'; constraints?: string }
 
 /** Binds a suggestion to the currently reviewed need and its supporting observations. */

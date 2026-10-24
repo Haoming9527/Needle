@@ -13,7 +13,7 @@ describe('local intent memory', () => {
     expect(() => store.record(meal)).toThrow('Enable context memory');
     store.setConsent(true); store.record(meal);
     expect(new IntentStore(db).getState().observations).toHaveLength(1);
-    expect(store.reset()).toEqual({ consent: false, observations: [], hypotheses: [] });
+    expect(store.reset()).toEqual({ consent: false, attentionConsent: false, observations: [], hypotheses: [] });
   });
   it('stitches complementary weak evidence across sites without inventing purchase readiness', () => {
     const { store } = setup(); store.setConsent(true); store.record(meal);

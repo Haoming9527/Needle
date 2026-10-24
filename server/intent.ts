@@ -1,12 +1,22 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { IntentAction, IntentConnection, IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
+import { ATTENTION_DWELL_MS, DEMO_ATTENTION_SOURCES, attentionSourceForUrl, type AttentionCapture } from '../shared/attention.js';
 import { ApiError } from './errors.js';
 
 const weights = { dwell: 2, revisit: 2, find: 3, save: 4, wishlist: 4, group_interest: 4, cart: 5 };
 const strength = { dwell: 0, revisit: 1, find: 2, save: 3, wishlist: 4, group_interest: 5, cart: 6 };
 const weak = (value: IntentObservation) => value.action === 'dwell' || value.action === 'revisit';
 const site = (origin: string) => new URL(origin).hostname.replace(/^www\./, '');
-const semanticKey = (value: IntentObservationInput) => `${site(value.sourceOrigin)}:${value.entityKey ?? value.summary.trim().toLowerCase().replace(/\s+/g, ' ')}`;
+const semanticKey = (value: IntentObservationInput) => `${sourceIdentity(value) ?? site(value.sourceOrigin)}:${value.entityKey ?? value.summary.trim().toLowerCase().replace(/\s+/g, ' ')}`;
+function sourceIdentity(value: IntentObservationInput): string | undefined {
+  const capture = value.capture;
+  if (capture?.method === 'measured_cursor' && capture.environment === 'controlled_demo' && value.provenance === 'demo_fixture') {
+    const source = DEMO_ATTENTION_SOURCES[capture.sourceId];
+    if (source && source.targetId === capture.targetId && capture.actualOrigin === value.sourceOrigin && attentionSourceForUrl(`${capture.actualOrigin}${source.path}`)?.id === source.id) return `demo:${source.id}`;
+  }
+  const host = site(value.sourceOrigin);
+  return ['localhost', '127.0.0.1', '[::1]', 'needle.local'].includes(host) || host.endsWith('.localhost') ? undefined : host;
+}
 const parse = <T>(data: unknown): T => JSON.parse(String(data)) as T;
 interface StoredIntentFeedback extends IntentFeedback { supportingObservationIds?: string[] }
 function matchesSupport(feedback: StoredIntentFeedback | undefined, ids: string[]): boolean {
@@ -51,7 +61,7 @@ function connectionFor(first: IntentObservation, second: IntentObservation, key:
   };
   const template = templates[key];
   return {
-    observations: [first, second].map(value => ({ observationId: value.id, sourceTitle: value.sourceTitle, action: value.action, summary: value.summary, provenance: value.provenance })),
+    observations: [first, second].map(value => ({ observationId: value.id, sourceTitle: value.sourceTitle, action: value.action, summary: value.summary, provenance: value.provenance, ...(value.capture ? { capture: value.capture } : {}) })),
     inferredNeed: { text: confirmed ? template.confirmed : template.tentative, basis: corrected ? 'user_corrected' : confirmed ? 'user_confirmed' : 'hypothesis' },
     uncertainty: confirmed ? `${corrected ? template.uncertainty + ' ' : ''}Confirming a useful need does not express a purchase decision.` : template.uncertainty,
     question: template.question,
@@ -80,11 +90,32 @@ export class IntentStore {
     const consent = this.db.prepare("SELECT value FROM intent_settings WHERE key='consent'").get()?.value === 'true';
     const observations = this.db.prepare('SELECT data FROM intent_observations ORDER BY rowid').all().map(row => parse<IntentObservation>(row.data));
     const feedback = new Map(this.db.prepare('SELECT id,data FROM intent_feedback').all().map(row => [String(row.id), parse<StoredIntentFeedback>(row.data)]));
-    return { consent, observations, hypotheses: evaluateIntent(observations, feedback) };
+    const attentionConsent = consent && this.db.prepare("SELECT value FROM intent_settings WHERE key='attentionConsent'").get()?.value === 'true';
+    return { consent, attentionConsent, observations, hypotheses: evaluateIntent(observations, feedback) };
   }
   setConsent(enabled: boolean): IntentState {
+    if (!enabled) this.db.prepare("DELETE FROM intent_settings WHERE key='attentionConsent'").run();
     this.db.prepare("INSERT INTO intent_settings VALUES ('consent',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(enabled));
     return this.getState();
+  }
+  setAttentionConsent(enabled: boolean): IntentState {
+    if (enabled && !this.getState().consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before enabling measured attention.');
+    this.db.prepare("INSERT INTO intent_settings VALUES ('attentionConsent',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(enabled));
+    return this.getState();
+  }
+  recordAttention(input: AttentionCapture): IntentState {
+    if (!this.getState().attentionConsent) throw new ApiError(409, 'ATTENTION_CONSENT_REQUIRED', 'Enable measured attention before collecting cursor signals.');
+    const source = attentionSourceForUrl(input.documentUrl);
+    if (!source || source.id !== input.sourceId || source.targetId !== input.targetId) throw new ApiError(400, 'INVALID_ATTENTION_SOURCE', 'Use a registered demo page and reading region.');
+    if (input.measurement.dwellMs < ATTENTION_DWELL_MS || (input.action === 'revisit' && input.measurement.visitOrdinal < 2)) throw new ApiError(400, 'INVALID_ATTENTION_MEASUREMENT', 'The cursor interaction did not meet the dwell or revisit threshold.');
+    const origin = new URL(input.documentUrl).origin;
+    return this.record({ id: input.id, action: input.action, sourceOrigin: origin, sourceTitle: source.title,
+      summary: input.action === 'revisit' ? source.summary.replace('Spent time on', 'Returned to') : source.summary,
+      tags: source.tags, provenance: 'demo_fixture', entityKey: `demo:${source.id}:${source.targetId}`,
+      capture: { method: 'measured_cursor', environment: 'controlled_demo', sessionId: input.sessionId, pageInstanceId: input.pageInstanceId,
+        sourceId: source.id, targetId: source.targetId, actualOrigin: origin, dwellMs: input.measurement.dwellMs,
+        visitOrdinal: input.measurement.visitOrdinal, capturedAt: input.capturedAt },
+    });
   }
   record(input: IntentObservationInput): IntentState {
     if (!this.getState().consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before saving browsing signals.');
@@ -110,6 +141,7 @@ export class IntentStore {
     const next: IntentObservation = {
       ...first, id: previous?.id ?? first.id, createdAt: previous?.createdAt ?? first.createdAt,
       action: strongest.action,
+      ...(strongest.capture ? { capture: strongest.capture, sourceOrigin: strongest.sourceOrigin } : {}),
       collectionId: [...events].reverse().find(event => event.collectionId)?.collectionId,
       tags: [...new Set(events.flatMap(event => event.tags))],
       provenance: events.some(event => event.provenance === 'demo_fixture') ? 'demo_fixture' : 'observed',
@@ -169,15 +201,16 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
   return candidates.flatMap(candidate => {
     const relevant = observations.filter(value => value.tags.some(tag => candidate.tags.includes(tag)));
     // Require complementary evidence across two sites, not two repetitions of the same topic.
-    const external = relevant.filter(value => !['localhost', '127.0.0.1', '[::1]', 'needle.local'].includes(site(value.sourceOrigin)) && !site(value.sourceOrigin).endsWith('.localhost'));
-    const first = external.find(a => a.tags.includes(candidate.tags[0]!) && external.some(b => site(a.sourceOrigin) !== site(b.sourceOrigin) && b.tags.includes(candidate.tags[1]!)));
-    const second = first && external.find(b => site(first.sourceOrigin) !== site(b.sourceOrigin) && b.tags.includes(candidate.tags[1]!));
+    const external = relevant.filter(value => !!sourceIdentity(value));
+    const independent = (a: IntentObservation, b: IntentObservation) => sourceIdentity(a) !== sourceIdentity(b) && !!a.capture === !!b.capture;
+    const first = external.find(a => a.tags.includes(candidate.tags[0]!) && external.some(b => independent(a, b) && b.tags.includes(candidate.tags[1]!)));
+    const second = first && external.find(b => independent(first, b) && b.tags.includes(candidate.tags[1]!));
     if (!first || !second) return [];
     const ordered = [first, second, ...relevant.filter(value => value !== first && value !== second)];
     const counted: IntentObservation[] = [];
     const weakSites = new Set<string>();
     for (const value of ordered) {
-      if (weak(value)) { if (weakSites.has(site(value.sourceOrigin))) continue; weakSites.add(site(value.sourceOrigin)); }
+      if (weak(value)) { const key = sourceIdentity(value) ?? site(value.sourceOrigin); if (weakSites.has(key)) continue; weakSites.add(key); }
       counted.push(value);
     }
     const evidencePoints = counted.reduce((sum, value) => sum + weights[value.action], 0);
@@ -198,7 +231,7 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
       interest: response?.action === 'confirm' || corrected ? 'confirmed' : 'tentative',
       status: response?.action === 'dismiss' ? 'dismissed' : 'active', evidencePoints,
       evidenceIds: counted.map(value => value.id), constraints: response?.constraints,
-      explanation: `${counted.map(value => `${value.action} on ${site(value.sourceOrigin)}: ${value.summary}`).join('; ')}. ${evidencePoints} heuristic evidence points, not a purchase probability. ${fixture ? 'Includes labeled demo fixture evidence.' : 'Based on opted-in observed interactions.'}${corrected ? ' User corrected the inferred need.' : ''}`,
+      explanation: `${counted.map(value => `${value.action} on ${value.capture ? `demo source ${value.capture.sourceId} (${site(value.sourceOrigin)})` : site(value.sourceOrigin)}: ${value.summary}`).join('; ')}. ${evidencePoints} heuristic evidence points, not a purchase probability. ${fixture ? counted.some(value => value.capture) ? 'Includes measured cursor interactions on controlled demo sources, not verified external browsing.' : 'Includes labeled demo fixture evidence.' : 'Based on opted-in observed interactions.'}${corrected ? ' User corrected the inferred need.' : ''}`,
     } satisfies IntentHypothesis];
   });
 }
