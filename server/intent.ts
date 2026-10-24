@@ -72,7 +72,7 @@ function connectionFor(first: IntentObservation, second: IntentObservation, key:
 }
 
 /** Local single-user evidence memory. Scores are explainable heuristic points, never probabilities. */
-interface StoredSynthesis { contextKey: string; result: SynthesisOutput; generatedAt: string; correction?: string; model: string; promptVersion: string }
+interface StoredSynthesis { contextKey: string; result: SynthesisOutput; generatedAt: string; correction?: string; constraints?: string; model: string; promptVersion: string }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 export class IntentStore {
@@ -150,7 +150,19 @@ export class IntentStore {
         if (typeof result[key] !== 'string' || !result[key]?.trim() || result[key]!.length > limit) fail();
       }
     } else if (['label', 'need', 'why', 'question', 'productQuery'].some(key => result[key as keyof SynthesisOutput] !== null)) fail();
-    const saved: StoredSynthesis = { contextKey: expectedContextKey, result, generatedAt: new Date().toISOString(), correction, model: this.synthesisConfig.model, promptVersion: this.synthesisConfig.promptVersion };
+    let constraints: string | undefined;
+    if (correction) {
+      const row = this.db.prepare('SELECT data FROM intent_syntheses WHERE id=1').get();
+      const previous = row ? parse<StoredSynthesis>(row.data) : undefined;
+      if (previous?.contextKey === expectedContextKey && previous.result.outcome === 'hypothesis') {
+        const priorId = `ai-${digest([previous.contextKey, previous.result, previous.correction ?? '']).slice(0, 48)}`;
+        const feedbackRow = this.db.prepare('SELECT data FROM intent_feedback WHERE id=?').get(priorId);
+        const priorFeedback = feedbackRow ? parse<StoredIntentFeedback>(feedbackRow.data) : undefined;
+        const bound = matchesSupport(priorFeedback, previous.result.evidence.map(value => value.observationId));
+        constraints = (bound ? priorFeedback?.constraints : undefined) ?? previous.constraints;
+      }
+    }
+    const saved: StoredSynthesis = { contextKey: expectedContextKey, result, generatedAt: new Date().toISOString(), correction, constraints, model: this.synthesisConfig.model, promptVersion: this.synthesisConfig.promptVersion };
     this.db.prepare('INSERT INTO intent_syntheses VALUES (1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(saved));
     this.bumpRuntime();
     return this.getState();
@@ -167,7 +179,7 @@ export class IntentStore {
     const explicit = observations.filter(value => value.tags.some(tag => tags.has(tag)) && ['wishlist', 'save', 'cart', 'group_interest'].includes(value.action));
     const readiness: IntentHypothesis['readiness'] = !confirmed ? 'exploring' : explicit.some(value => value.action === 'cart') ? 'ready_to_review' : explicit.some(value => value.action === 'group_interest') ? 'conditional' : explicit.some(value => ['wishlist', 'save'].includes(value.action)) ? 'considering' : 'exploring';
     return { id, label: result.label!, question: result.question!, interest: confirmed ? 'confirmed' : 'tentative', status: response?.action === 'dismiss' ? 'dismissed' : 'active',
-      readiness, evidencePoints: 0, evidenceIds, constraints: response?.constraints, recommendationKey: 'contextual',
+      readiness, evidencePoints: 0, evidenceIds, constraints: response?.constraints ?? saved.constraints, recommendationKey: 'contextual',
       origin: { kind: 'model', model: saved.model, promptVersion: saved.promptVersion, evidenceFingerprint: saved.contextKey, productQuery: result.productQuery! },
       explanation: `${result.why} Model-generated connection; no purchase probability or calibrated confidence is asserted.`,
       connection: {
@@ -283,7 +295,7 @@ export class IntentStore {
     const supportingObservationIds = hypothesis.connection.observations.map(value => value.observationId);
     const stored = previous ? parse<StoredIntentFeedback>(previous.data) : undefined;
     const prior = matchesSupport(stored, supportingObservationIds) ? stored : undefined;
-    const updated: StoredIntentFeedback = { ...input, constraints: input.constraints ?? prior?.constraints, supportingObservationIds };
+    const updated: StoredIntentFeedback = { ...input, constraints: input.constraints ?? prior?.constraints ?? hypothesis.constraints, supportingObservationIds };
     this.db.prepare('INSERT INTO intent_feedback VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(id, JSON.stringify(updated));
     this.bumpRuntime();
     return this.getState();

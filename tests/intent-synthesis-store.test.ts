@@ -96,4 +96,24 @@ describe('persisted grounded context synthesis', () => {
     expect(confirmed.connection.inferredNeed.basis).toBe('user_corrected');
     expect(confirmed.connection.uncertainty).toContain('not a purchase decision');
   });
+  it('carries same-context confirmed constraints through dismissal and an AI correction, but requires reconfirmation', () => {
+    const { store } = setup(); const firstAi = save(store).hypotheses[0]!;
+    store.feedback(firstAi.id, { action: 'confirm', constraints: 'Under USD 100' });
+    store.feedback(firstAi.id, { action: 'dismiss' });
+    const corrected = save(store, { ...output, productQuery: 'lightweight travel binoculars' }, 'For long walks').hypotheses[0]!;
+    expect(corrected).toMatchObject({ interest: 'tentative', constraints: 'Under USD 100' });
+    expect(corrected.connection.productRationale).toBeUndefined();
+    const confirmed = store.feedback(corrected.id, { action: 'confirm' }).hypotheses[0]!;
+    expect(confirmed).toMatchObject({ interest: 'confirmed', constraints: 'Under USD 100' });
+    expect(() => store.feedback(confirmed.id, { action: 'correct', correction: 'home-meal-prep' })).toThrow('Reconsider');
+  });
+  it('does not carry old constraints into a changed context even when a correction is provided', () => {
+    const { store } = setup(); const firstAi = save(store).hypotheses[0]!;
+    store.feedback(firstAi.id, { action: 'confirm', constraints: 'Under USD 100' });
+    store.record({ ...first, id: 'updated-guide', summary: 'New topic: bird care at home.' });
+    const corrected = save(store, output, 'A different need').hypotheses[0]!;
+    expect(corrected.interest).toBe('tentative');
+    expect(corrected.constraints).toBeUndefined();
+  });
+
 });

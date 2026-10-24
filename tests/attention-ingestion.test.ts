@@ -30,7 +30,7 @@ describe('measured attention on controlled demo sources', () => {
     expect(paused.observations).toHaveLength(1);
     await api.post('/intent/consent').send({ enabled: true }).expect(200);
     await api.post('/intent/attention').send(capture()).expect(409);
-    expect((await api.post('/intent/reset').send({}).expect(200)).body).toEqual({ consent: false, attentionConsent: false, observations: [], hypotheses: [] });
+    expect((await api.post('/intent/reset').send({}).expect(200)).body).toEqual({ consent: false, attentionConsent: false, observations: [], hypotheses: [], synthesis: { available: false, contextKey: expect.any(String), model: 'test', promptVersion: 'context-connection-v1', status: 'idle', observations: [] } });
   });
   it('persists measurement provenance and stitches two local demo sources without claiming external origins', async () => {
     const api = setup(); await enable(api);
