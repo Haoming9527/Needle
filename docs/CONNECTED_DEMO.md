@@ -19,3 +19,13 @@ This demo starts with everyday activity, before a shopping request. The cross-si
 - Browser-page text and inferred needs are uncertain evidence. The user can confirm or correct a hypothesis.
 - Context stays in the local prototype; no retailer data-sharing integration is represented.
 - Group-buy interest is conditional and does not place an order or join an external buying group.
+
+## Visual references
+
+These patterns were reviewed via Mobbin and adapted to Needle's context flow, not copied as complete screens:
+
+- [ZARA wishlist](https://mobbin.com/screens/51153b34-429f-4b9f-97cc-bb261245612c): clear named content and an airy card layout, avoiding a dense control dashboard.
+- [AirOps recommended prompts](https://mobbin.com/screens/ae0f151a-f195-43ba-9f2f-9c3ff74bfa10): one prominent question, supporting source chips and nearby accept/dismiss controls.
+- [Variant evidence layout](https://mobbin.com/screens/42d49819-409e-47cd-9614-f0266711069a): two adjacent evidence cards make the connection between otherwise separate moments visible.
+
+The key demo reveal now reads visually as two source cards → one tentative question → user confirmation or correction. Detailed arithmetic stays in an expandable review section. Cards retain two compact columns at 390px; controls wrap, while wider screens receive more breathing room.
