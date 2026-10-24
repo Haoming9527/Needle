@@ -12,7 +12,7 @@ chrome.runtime.onInstalled.addListener(() => {
   void chrome.contextMenus.removeAll().then(() => {
     chrome.contextMenus.create({
       id: MENU_ID,
-      title: 'Find on Coupang with Needle',
+      title: 'Find with Needle',
       contexts: ['image', 'selection', 'page', 'link', 'video'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
@@ -67,7 +67,7 @@ async function save(selection: CapturedSelection): Promise<void> {
 function captureError(error: unknown): string {
   const message = error instanceof Error ? error.message : '';
   if (/unsupported|chrome:|restricted|cannot access|permission|extensions gallery/i.test(message)) {
-    return 'Needle can capture ordinary webpages. Open one, then right-click and choose “Find on Coupang with Needle” to grant access.';
+    return 'Needle can capture ordinary webpages. Open one, then right-click and choose “Find with Needle” to grant access.';
   }
   return message || 'Could not capture this item. Right-click the webpage again, or describe the product in Needle.';
 }

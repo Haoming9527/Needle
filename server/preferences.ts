@@ -1,10 +1,12 @@
 import type { Preferences } from '../shared/types.js';
 import { ApiError } from './errors.js';
 
+const currencyCodes = new Set(Intl.supportedValuesOf('currency'));
+
 /** The demo supports budget refinements without ever treating unlike currencies as comparable. */
 export function budgetFromInstruction(instruction: string, existing: Preferences = {}, explicit: Preferences = {}): Preferences {
   const text = instruction.toUpperCase();
-  const codeMatch = text.match(/(?:^|[^A-Z])(KRW|USD|SGD|TWD|EUR|GBP|JPY|AUD|CAD|CNY)(?=\s|\d|$)/);
+  const codeMatch = [...text.matchAll(/(?:^|[^A-Z])([A-Z]{3})(?=\s|\d|$)/g)].find(match => currencyCodes.has(match[1]));
   let currency = explicit.currency ?? codeMatch?.[1];
   if (!currency) {
     if (/₩|원/.test(text)) currency = 'KRW';

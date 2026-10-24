@@ -18,6 +18,7 @@ const examples = [
 type Pending = { path: '/discover'; body: DiscoverRequest } | { path: '/refine'; body: RefineRequest };
 type Problem = { message: string; retryable: boolean };
 type View = 'find' | 'cart' | 'history';
+const currencyCodes = Intl.supportedValuesOf('currency');
 
 export default function App() {
   const [view, setView] = useState<View>('find');
@@ -40,7 +41,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [budget, setBudget] = useState('');
-  const [currency, setCurrency] = useState('KRW');
+  const [currency, setCurrency] = useState('USD');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<DemoOrder[]>([]);
   const [collectionError, setCollectionError] = useState('');
@@ -133,7 +134,7 @@ export default function App() {
       const offer = result.offers.find(item => item.id === captured.offerId) ?? result.offers[0];
       setResponse(result); setMode(result.mode); setSelectedOfferId(offer?.id ?? '');
       setShowEdit(result.interpretation.needsClarification);
-      if (offer && (captured.intent === 'buy' || captured.intent === 'cart')) setCheckout({ offer, sessionId: result.sessionId, action: captured.intent, variant: captured.variant });
+      if (offer && (captured.intent === 'buy' || captured.intent === 'cart')) setCheckout({ offer, sessionId: result.sessionId, action: captured.intent, variant: captured.variant, fallbackSrc: captured.selection.imageDataUrl ?? captured.selection.imageUrl });
     } else discover(captured.selection, modeInitialized.current ? mode : health?.defaultMode);
   }, [captured, health, mode, discover, stopRequest]);
 
@@ -163,7 +164,7 @@ export default function App() {
   return <div className={`needle-app ${isExtension ? 'extension-app' : 'preview-app'}`}>
     <header className="app-header"><button className="wordmark" onClick={reset} aria-label="Needle home"><NeedleMark size={28} /><span>needle</span></button><button className="icon-button" onClick={() => setShowSettings(!showSettings)} aria-expanded={showSettings} aria-label="Settings"><Settings2 size={18} /></button></header>
     <nav className="app-nav" aria-label="Shopping"><button aria-current={view === 'find' ? 'page' : undefined} onClick={() => openView('find')}><Search size={16} />Find</button><button aria-current={view === 'cart' ? 'page' : undefined} onClick={() => openView('cart')}><ShoppingCart size={16} />Cart{cartCount > 0 && <span className="count">{cartCount}</span>}</button><button aria-current={view === 'history' ? 'page' : undefined} onClick={() => openView('history')}><History size={16} />History</button></nav>
-    {showSettings && <section className="settings-panel" aria-label="Settings"><div className="setting-heading"><h2>Discovery</h2><span className={`connection ${serviceOffline ? 'offline' : ''}`}>{serviceOffline ? 'Offline' : health?.agentAvailable ? 'AI connected' : health ? 'Catalog search' : 'Connecting'}</span></div><div className="mode-switch" role="group" aria-label="Product source"><button aria-pressed={mode === 'sample'} onClick={() => changeMode('sample')}>Demo catalog</button><button aria-pressed={mode === 'live'} disabled={!health?.liveAvailable} onClick={() => changeMode('live')}>Coupang live</button></div><p>{health?.agentAvailable ? 'The agent identifies your selection. Catalog searches use Exa when no item matches.' : 'Add an API key in .env to identify images. Descriptions work with the local catalog now.'}</p><div className="budget-fields"><label>Budget<input type="number" min="1" value={budget} placeholder="No limit" onChange={event => setBudget(event.target.value)} /></label><label>Currency<select value={currency} onChange={event => setCurrency(event.target.value)}>{['KRW', 'USD', 'SGD', 'TWD', 'JPY', 'EUR', 'GBP'].map(code => <option key={code}>{code}</option>)}</select></label></div><p>Demo catalog with illustrative prices and web product references. Original sources appear in Product details; currencies are preserved.</p><button className="text-button" onClick={() => void refreshHealth()}><RefreshCw size={13} />Check connection</button></section>}
+    {showSettings && <section className="settings-panel" aria-label="Settings"><div className="setting-heading"><h2>Discovery</h2><span className={`connection ${serviceOffline ? 'offline' : ''}`}>{serviceOffline ? 'Offline' : health?.agentAvailable ? 'AI connected' : health ? 'Catalog search' : 'Connecting'}</span></div><div className="mode-switch" role="group" aria-label="Product source"><button aria-pressed={mode === 'sample'} onClick={() => changeMode('sample')}>Catalog + web</button><button aria-pressed={mode === 'live'} disabled={!health?.liveAvailable} onClick={() => changeMode('live')}>Web search</button></div><p>{health?.agentAvailable ? 'The agent identifies your selection and searches across stores. Catalog mode checks saved products first.' : 'Add an API key in .env to identify images. Descriptions work with the local catalog now.'}</p><div className="budget-fields"><label>Budget<input type="number" min="1" value={budget} placeholder="No limit" onChange={event => setBudget(event.target.value)} /></label><label>Currency<select value={currency} onChange={event => setCurrency(event.target.value)}>{currencyCodes.map(code => <option key={code}>{code}</option>)}</select></label></div><p>Demo catalog with illustrative prices and web product references. Original sources appear in Product details; currencies are preserved.</p><button className="text-button" onClick={() => void refreshHealth()}><RefreshCw size={13} />Check connection</button></section>}
     <main>
       {serviceOffline && <div className="notice" role="alert"><Info size={16} /><div><p>Start the local service to continue.</p><button className="text-button" onClick={() => { void refreshHealth(); void refreshCollections(); }}>Reconnect</button></div></div>}
       {toast && <div className="toast" role="status"><Check size={15} />{toast}</div>}
@@ -176,9 +177,9 @@ export default function App() {
         {problem && <div className="notice" role="alert"><Info size={16} /><div><p>{problem.message}</p>{problem.retryable && previousRequest.current && <button className="text-button" onClick={() => { if (previousRequest.current) void run(previousRequest.current); }}><RefreshCw size={13} />Try again</button>}</div></div>}
         {response && <section className={`results ${pending ? 'results-pending' : ''}`} aria-label="Product recommendations" aria-busy={!!pending}>
           {response.interpretation.needsClarification && <p className="clarification">{response.interpretation.clarification ?? 'Add a brand, model, or a clearer description.'}</p>}
-          {selectedOffer ? <ProductResult response={response} offer={selectedOffer} pending={!!pending} onSelect={id => { setSelectedOfferId(id); setCheckout(null); }} onCheckout={setCheckout} /> : !response.interpretation.needsClarification && <div className="empty-state"><Search size={26} /><h2>No close match</h2><p>{response.webSearch?.message ?? 'Try a clearer crop, a brand, or a model name.'}</p><button className="secondary-button" onClick={() => setShowEdit(true)}>Edit description</button></div>}
+          {selectedOffer ? <ProductResult response={response} offer={selectedOffer} fallbackSrc={preview} pending={!!pending} onSelect={id => { setSelectedOfferId(id); setCheckout(null); }} onCheckout={setCheckout} /> : !response.interpretation.needsClarification && <div className="empty-state"><Search size={26} /><h2>No close match</h2><p>{response.webSearch?.message ?? 'Try a clearer crop, a brand, or a model name.'}</p><button className="secondary-button" onClick={() => setShowEdit(true)}>Edit description</button></div>}
           {response.warnings.length > 0 && <details className="search-notes"><summary>Search notes</summary>{response.warnings.map(warning => <p key={warning}>{warning}</p>)}</details>}
-          <form className="refine-form" onSubmit={event => { event.preventDefault(); if (instruction.trim() && !pending) void run({ path: '/refine', body: { sessionId: response.sessionId, instruction: instruction.trim() } }); }}><label htmlFor="refine-input">Refine your find</label><div className="refine-input-wrap"><input id="refine-input" placeholder="Similar, under KRW 50,000…" value={instruction} maxLength={1000} onChange={event => setInstruction(event.target.value)} disabled={!!pending} /><button type="submit" aria-label="Refine recommendations" disabled={!instruction.trim() || !!pending}><ArrowUp size={18} /></button></div></form>
+          <form className="refine-form" onSubmit={event => { event.preventDefault(); if (instruction.trim() && !pending) void run({ path: '/refine', body: { sessionId: response.sessionId, instruction: instruction.trim() } }); }}><label htmlFor="refine-input">Refine your find</label><div className="refine-input-wrap"><input id="refine-input" placeholder="Similar, under USD 50…" value={instruction} maxLength={1000} onChange={event => setInstruction(event.target.value)} disabled={!!pending} /><button type="submit" aria-label="Refine recommendations" disabled={!instruction.trim() || !!pending}><ArrowUp size={18} /></button></div></form>
         </section>}
       </>}
       {view !== 'find' && <>

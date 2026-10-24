@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { createApp } from '../server/app.js';
 import type { ServerConfig } from '../server/config.js';
 import { ApiError } from '../server/errors.js';
-import { containsEvidence, hasIdentifier, isCoupangProductUrl, matchesModel, publicImageUrl, verifiedPrice } from '../server/evidence.js';
+import { containsEvidence, hasIdentifier, matchesModel, publicImageUrl, verifiedPrice } from '../server/evidence.js';
 import { budgetFromInstruction } from '../server/preferences.js';
 import { SampleProvider } from '../server/sample-provider.js';
 
@@ -22,7 +22,7 @@ describe('discovery and contextual refinement', () => {
     expect(response.body.offers[0].match).toBe('exact');
     expect(response.body.offers[0].differences).toEqual([]);
     expect(response.body.offers.every((offer: any) => offer.dataOrigin === 'sample' && offer.sourceUrl === null && offer.shipping === null && offer.availability === null)).toBe(true);
-    expect(response.body.warnings.join(' ')).toContain('not verified Coupang listings');
+    expect(response.body.warnings.join(' ')).toContain('not verified retailer listings');
   });
 
   it('preserves the original target when a budget narrows the alternatives', async () => {
@@ -158,13 +158,15 @@ describe('demo purchase integrity', () => {
 });
 
 describe('source evidence and local server boundaries', () => {
-  it('only accepts actual Coupang product URLs for live offers', () => {
-    expect(isCoupangProductUrl('https://www.coupang.com/vp/products/123?itemId=456')).toBe(true);
-    for (const url of ['https://coupang.com.evil.test/vp/products/123', 'https://evil.test/vp/products/123', 'http://www.coupang.com/vp/products/123', 'https://www.coupang.com/np/search?q=lamp', 'https://user:pass@www.coupang.com/vp/products/123']) expect(isCoupangProductUrl(url)).toBe(false);
+  it('allows public retailer URLs without restricting the merchant', () => {
+    expect(publicImageUrl('https://store.example.com/products/123')).toBe('https://store.example.com/products/123');
+    expect(publicImageUrl('https://other-shop.example.org/item/456')).toBe('https://other-shop.example.org/item/456');
+    for (const url of ['http://store.example.com/products/123', 'https://user:pass@store.example.com/products/123', 'https://127.0.0.1/product']) expect(publicImageUrl(url)).toBeNull();
   });
 
   it('rejects unsupported prices, ambiguous currency, and missing evidence', () => {
     expect(verifiedPrice('Price: KRW 49,000', 49000, 'KRW', 'KRW 49,000')).toEqual({ price: 49000, currency: 'KRW' });
+    expect(verifiedPrice('Price: KWD 12.345', 12.345, 'KWD', 'KWD 12.345')).toEqual({ price: 12.345, currency: 'KWD' });
     expect(verifiedPrice('Price: $49', 49, 'USD', '$49')).toEqual({ price: null, currency: null });
     expect(verifiedPrice('Price: KRW 49,000', 40000, 'KRW', 'KRW 49,000')).toEqual({ price: null, currency: null });
     expect(verifiedPrice('Price unavailable', 49000, 'KRW', 'KRW 49,000')).toEqual({ price: null, currency: null });
@@ -198,6 +200,8 @@ describe('source evidence and local server boundaries', () => {
   it('supports abbreviated budgets without truncating the amount', () => {
     expect(budgetFromInstruction('under KRW50k')).toEqual({ currency: 'KRW', budget: 50000 });
     expect(budgetFromInstruction('under KRW 1.5m')).toEqual({ currency: 'KRW', budget: 1500000 });
+    expect(budgetFromInstruction('under INR 5000')).toEqual({ currency: 'INR', budget: 5000 });
+    expect(budgetFromInstruction('under CHF 50')).toEqual({ currency: 'CHF', budget: 50 });
   });
 
   it('requires a new budget when changing currencies', () => {

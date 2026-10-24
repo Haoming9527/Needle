@@ -66,27 +66,22 @@ export function createApp(options: AppOptions = {}) {
     if (primary.offers.length || item.needsClarification) return { ...primary, discoverySource: 'catalog' };
 
     if (liveMissing.length) {
-      const message = `No catalog match. Automatic Coupang web search needs ${liveMissing.join(' and ')} in .env. Add the missing key${liveMissing.length > 1 ? 's' : ''}, restart the server, and retry.`;
+      const message = `No catalog match. Automatic web search needs ${liveMissing.join(' and ')} in .env. Add the missing key${liveMissing.length > 1 ? 's' : ''}, restart the server, and retry.`;
       return { ...primary, warnings: [...primary.warnings, message], discoverySource: 'catalog', webSearch: { status: 'unavailable', message } };
     }
 
     try {
       // Reuse the already identified object and this request's deadline; do not send the image through vision again.
-      const fallback = await providers.live.search(item, preferences, signal, instruction);
-      if (fallback.offers.length) {
-        const message = 'No catalog match. Found these Coupang listings with Exa.';
-        return { ...fallback, warnings: [...primary.warnings, message, ...fallback.warnings], discoverySource: 'exa', webSearch: { status: 'used', message } };
-      }
       const web = await webDemoProvider.search(item, preferences, signal, instruction);
       const offers = database.cacheWebOffers(item, web.offers).filter(offer => preferences.budget === undefined || (offer.currency === preferences.currency && offer.price !== null && offer.price <= preferences.budget));
       const message = offers.length
         ? 'Found product references with Exa and added them to your demo catalog.'
-        : 'Exa searched Coupang and the wider web but found no matching product references. Try a broader description or a brand/model name.';
-      return { offers, warnings: [...primary.warnings, message, ...fallback.warnings, ...web.warnings], discoverySource: 'exa', webSearch: { status: offers.length ? 'used' : 'empty', message } };
+        : 'Exa searched across stores but found no matching product references. Try a broader description or a brand/model name.';
+      return { offers, warnings: [...primary.warnings, message, ...web.warnings], discoverySource: 'exa', webSearch: { status: offers.length ? 'used' : 'empty', message } };
     } catch (error) {
       if (signal.aborted) throw new ApiError(504, 'TIMEOUT', 'This search took too long. Try again or narrow your description.');
       const detail = error instanceof ApiError ? error.message : 'The web search service could not be reached. Please retry.';
-      const message = `No catalog match. Automatic Coupang web search could not finish. ${detail}`;
+      const message = `No catalog match. Automatic web search could not finish. ${detail}`;
       return { ...primary, warnings: [...primary.warnings, message], discoverySource: 'exa', webSearch: { status: 'failed', message } };
     }
   }
