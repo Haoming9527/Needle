@@ -209,7 +209,9 @@ export class IntentStore {
     };
     const ai = current && saved?.result.outcome === 'hypothesis' ? this.modelHypothesis(saved, observations, feedback) : undefined;
     return { consent, attentionConsent, observations, synthesis,
-      hypotheses: ai ? [ai, ...rules] : synthesis.status === 'idle' ? rules : [] };
+      // Rule hypotheses stay available for the UI's explicit prepared-demo opt-in;
+      // synthesis status never promotes a rule to a model-generated connection.
+      hypotheses: ai ? [ai, ...rules] : rules };
 
   }
   setConsent(enabled: boolean): IntentState {

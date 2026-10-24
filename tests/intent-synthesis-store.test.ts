@@ -63,14 +63,20 @@ describe('persisted grounded context synthesis', () => {
     expect(store.synthesisRevision()).toBeGreaterThan(last);
     expect(store.getState().synthesis?.status).toBe('idle');
   });
-  it('suppresses rule fallbacks for abstention and stale model output', () => {
+  it('retains clearly distinct prepared rules for explicit fallback after abstention or stale output', () => {
     const { store } = setup();
     store.record({ ...first, id: 'recipe', entityKey: 'recipe', tags: ['meal-prep'] });
     store.record({ ...second, id: 'commute', entityKey: 'commute', tags: ['cycle-commute'] });
     expect(store.getState().hypotheses.some(item => item.id === 'lunch-on-the-move')).toBe(true);
-    expect(save(store, abstention)).toMatchObject({ synthesis: { status: 'abstained' }, hypotheses: [] });
+    const abstained = save(store, abstention);
+    expect(abstained.synthesis?.status).toBe('abstained');
+    expect(abstained.hypotheses.map(item => item.id)).toEqual(['lunch-on-the-move']);
+    expect(abstained.hypotheses.every(item => !item.origin && item.interest === 'tentative')).toBe(true);
     store.record({ ...first, id: 'new-bird', entityKey: 'new-bird' });
-    expect(store.getState()).toMatchObject({ synthesis: { status: 'stale' }, hypotheses: [] });
+    const stale = store.getState();
+    expect(stale.synthesis?.status).toBe('stale');
+    expect(stale.hypotheses.map(item => item.id)).toEqual(['lunch-on-the-move']);
+    expect(stale.hypotheses.some(item => item.origin?.kind === 'model')).toBe(false);
   });
   it('prefers complete measured sources without mixing cohorts, excludes local commerce, and bounds the projection', () => {
     const { store } = setup(); store.setAttentionConsent(true);
