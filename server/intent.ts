@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
+import type { IntentAction, IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
 import { ApiError } from './errors.js';
 
 const weights = { dwell: 2, revisit: 2, find: 3, save: 4, wishlist: 4, group_interest: 4, cart: 5 };
@@ -14,8 +14,17 @@ export class IntentStore {
   constructor(private db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS intent_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS intent_observations (id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS intent_events (id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL, action TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS intent_event_entity ON intent_events(semantic_key);
       CREATE TABLE IF NOT EXISTS intent_seen (id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS intent_feedback (id TEXT PRIMARY KEY, data TEXT NOT NULL);`);
+    // Upgrade prior aggregate-only databases without changing canonical observation IDs.
+    for (const row of db.prepare('SELECT id,semantic_key,data FROM intent_observations').all()) {
+      if (!db.prepare('SELECT id FROM intent_events WHERE semantic_key=? LIMIT 1').get(row.semantic_key)) {
+        const previous = parse<IntentObservation>(row.data);
+        db.prepare('INSERT OR IGNORE INTO intent_events VALUES (?,?,?,?)').run(previous.id, String(row.semantic_key), previous.action, JSON.stringify(previous));
+      }
+    }
   }
   getState(): IntentState {
     const consent = this.db.prepare("SELECT value FROM intent_settings WHERE key='consent'").get()?.value === 'true';
@@ -31,20 +40,39 @@ export class IntentStore {
     if (!this.getState().consent) throw new ApiError(409, 'INTENT_CONSENT_REQUIRED', 'Enable context memory before saving browsing signals.');
     if (this.db.prepare('SELECT id FROM intent_seen WHERE id=?').get(input.id)) return this.getState();
     const key = semanticKey(input);
-    const row = this.db.prepare('SELECT data FROM intent_observations WHERE semantic_key=?').get(key);
-    const previous = row ? parse<IntentObservation>(row.data) : undefined;
-    const next: IntentObservation = previous ? {
-      ...previous,
-      action: strength[input.action] > strength[previous.action] ? input.action : previous.action,
-      collectionId: input.collectionId ?? previous.collectionId,
-      tags: [...new Set([...previous.tags, ...input.tags])],
-      // Fixture evidence cannot become observed merely by merging it with another event.
-      provenance: previous.provenance === 'demo_fixture' || input.provenance === 'demo_fixture' ? 'demo_fixture' : 'observed',
-    } : { ...input, sourceOrigin: new URL(input.sourceOrigin).origin, createdAt: new Date().toISOString() };
+    const event: IntentObservation = { ...input, sourceOrigin: new URL(input.sourceOrigin).origin, createdAt: new Date().toISOString() };
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('INSERT INTO intent_observations VALUES (?,?,?) ON CONFLICT(semantic_key) DO UPDATE SET data=excluded.data').run(next.id, key, JSON.stringify(next));
+      this.db.prepare('INSERT INTO intent_events VALUES (?,?,?,?)').run(event.id, key, event.action, JSON.stringify(event));
       this.db.prepare('INSERT INTO intent_seen VALUES (?)').run(input.id);
+      this.rebuild(key);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    return this.getState();
+  }
+  private rebuild(key: string): void {
+    const row = this.db.prepare('SELECT data FROM intent_observations WHERE semantic_key=?').get(key);
+    const previous = row ? parse<IntentObservation>(row.data) : undefined;
+    const events = this.db.prepare('SELECT data FROM intent_events WHERE semantic_key=? ORDER BY rowid').all(key).map(value => parse<IntentObservation>(value.data));
+    if (!events.length) { this.db.prepare('DELETE FROM intent_observations WHERE semantic_key=?').run(key); return; }
+    const first = events[0]!;
+    const strongest = events.reduce((best, event) => strength[event.action] > strength[best.action] ? event : best, first);
+    const next: IntentObservation = {
+      ...first, id: previous?.id ?? first.id, createdAt: previous?.createdAt ?? first.createdAt,
+      action: strongest.action,
+      collectionId: [...events].reverse().find(event => event.collectionId)?.collectionId,
+      tags: [...new Set(events.flatMap(event => event.tags))],
+      provenance: events.some(event => event.provenance === 'demo_fixture') ? 'demo_fixture' : 'observed',
+    };
+    this.db.prepare('INSERT INTO intent_observations VALUES (?,?,?) ON CONFLICT(semantic_key) DO UPDATE SET data=excluded.data').run(next.id, key, JSON.stringify(next));
+  }
+  /** Retract active commerce evidence while preserving weaker earlier observations. */
+  retractAction(sourceOrigin: string, entityKey: string, action: IntentAction): IntentState {
+    const key = `${site(sourceOrigin)}:${entityKey}`;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM intent_events WHERE semantic_key=? AND action=?').run(key, action);
+      this.rebuild(key);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
@@ -57,12 +85,19 @@ export class IntentStore {
     return this.getState();
   }
   remove(id: string): IntentState {
-    this.db.prepare('DELETE FROM intent_observations WHERE id=?').run(id);
+    const row = this.db.prepare('SELECT semantic_key FROM intent_observations WHERE id=?').get(id);
+    if (!row) return this.getState();
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM intent_events WHERE semantic_key=?').run(row.semantic_key);
+      this.db.prepare('DELETE FROM intent_observations WHERE id=?').run(id);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
   }
   reset(): IntentState {
     this.db.exec('BEGIN IMMEDIATE');
-    try { this.db.exec('DELETE FROM intent_observations; DELETE FROM intent_feedback; DELETE FROM intent_seen; DELETE FROM intent_settings; COMMIT;'); }
+    try { this.db.exec('DELETE FROM intent_events; DELETE FROM intent_observations; DELETE FROM intent_feedback; DELETE FROM intent_seen; DELETE FROM intent_settings; COMMIT;'); }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getState();
   }
@@ -76,8 +111,9 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
   return candidates.flatMap(candidate => {
     const relevant = observations.filter(value => value.tags.some(tag => candidate.tags.includes(tag)));
     // Require complementary evidence across two sites, not two repetitions of the same topic.
-    const first = relevant.find(a => a.tags.includes(candidate.tags[0]!) && relevant.some(b => site(a.sourceOrigin) !== site(b.sourceOrigin) && b.tags.includes(candidate.tags[1]!)));
-    const second = first && relevant.find(b => site(first.sourceOrigin) !== site(b.sourceOrigin) && b.tags.includes(candidate.tags[1]!));
+    const external = relevant.filter(value => !['localhost', '127.0.0.1', '[::1]', 'needle.local'].includes(site(value.sourceOrigin)) && !site(value.sourceOrigin).endsWith('.localhost'));
+    const first = external.find(a => a.tags.includes(candidate.tags[0]!) && external.some(b => site(a.sourceOrigin) !== site(b.sourceOrigin) && b.tags.includes(candidate.tags[1]!)));
+    const second = first && external.find(b => site(first.sourceOrigin) !== site(b.sourceOrigin) && b.tags.includes(candidate.tags[1]!));
     if (!first || !second) return [];
     const ordered = [first, second, ...relevant.filter(value => value !== first && value !== second)];
     const counted: IntentObservation[] = [];

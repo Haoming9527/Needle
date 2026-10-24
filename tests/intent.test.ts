@@ -67,4 +67,37 @@ describe('local intent memory', () => {
     store.setConsent(false); expect(() => store.record(cycle)).toThrow('Enable context memory');
     expect(store.getState().observations).toHaveLength(1);
   });
+  it('retracts commerce actions to earlier readiness with stable evidence identity', () => {
+    const { store, db } = setup(); store.setConsent(true); store.record(cycle);
+    const base = { ...meal, entityKey: 'lunchbox', action: 'save' as const };
+    store.record(base);
+    store.record({ ...base, id: 'pledge', action: 'group_interest' });
+    store.record({ ...base, id: 'pledge-revision', action: 'group_interest' });
+    expect(store.getState().hypotheses[0]).toMatchObject({ evidencePoints: 6, readiness: 'conditional' });
+    store.record({ ...base, id: 'cart', action: 'cart' });
+    expect(store.getState().hypotheses[0]).toMatchObject({ evidencePoints: 7, readiness: 'ready_to_review' });
+    let state = store.retractAction(base.sourceOrigin, 'lunchbox', 'cart');
+    expect(state.hypotheses[0]).toMatchObject({ evidencePoints: 6, readiness: 'conditional' });
+    state = new IntentStore(db).retractAction(base.sourceOrigin, 'lunchbox', 'group_interest');
+    expect(state.hypotheses[0]).toMatchObject({ evidencePoints: 6, readiness: 'considering' });
+    expect(state.observations.find(value => value.entityKey === 'lunchbox')?.id).toBe('meal');
+    // A retry of a withdrawn event cannot resurrect it; a new explicit action needs a new ID.
+    store.record({ ...base, id: 'pledge', action: 'group_interest' });
+    expect(store.getState().hypotheses[0]?.readiness).toBe('considering');
+    store.remove('meal');
+    expect(new IntentStore(db).getState().hypotheses).toEqual([]);
+  });
+  it('removing save leaves a separate active group pledge and local signals cannot establish cross-site context', () => {
+    const { store } = setup(); store.setConsent(true); store.record(meal);
+    store.record({ ...cycle, sourceOrigin: 'https://needle.local' });
+    expect(store.getState().hypotheses).toEqual([]);
+    store.record({ ...cycle, id: 'external-cycle' });
+    store.record({ ...meal, id: 'save-entity', action: 'save', entityKey: 'meal-box' });
+    store.record({ ...meal, id: 'group-entity', action: 'group_interest', entityKey: 'meal-box' });
+    store.retractAction(meal.sourceOrigin, 'meal-box', 'save');
+    expect(store.getState().hypotheses[0]?.readiness).toBe('conditional');
+    store.remove('save-entity');
+    expect(store.getState().observations.some(value => value.entityKey === 'meal-box')).toBe(false);
+  });
+
 });
