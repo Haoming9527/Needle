@@ -3,6 +3,11 @@ export type MatchKind = 'exact' | 'likely' | 'similar';
 export interface Selection {
   text?: string;
   imageDataUrl?: string;
+  /** Marked copy for vision; the unmarked crop remains the shopper's preview. */
+  annotatedImageDataUrl?: string;
+  /** Cursor location within the crop, normalized to 0..1 from its top-left. */
+  focus?: { x: number; y: number };
+  clarifications?: Array<{ question: string; answer: string }>;
   imageUrl?: string;
   pageUrl?: string;
   pageTitle?: string;
@@ -44,6 +49,7 @@ export interface Offer {
 }
 export interface DiscoverRequest { selection: Selection; preferences?: Preferences; mode?: DiscoveryMode }
 export interface RefineRequest { sessionId: string; instruction: string; preferences?: Preferences }
+export interface ClarifyRequest { sessionId: string; answer: string; selection: Selection }
 export interface SearchResponse {
   discoverySource?: 'catalog' | 'exa';
   webSearch?: { status: 'used' | 'empty' | 'unavailable' | 'failed'; message: string };

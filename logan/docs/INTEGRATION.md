@@ -1,35 +1,52 @@
-# Logan integration boundary
+# Team handoff / 팀 통합
 
-Logan is a standalone local demo on port 4320. The main Needle API runs separately on port 4318. Logan does not implement the extension, cursor collection, cross-site intent scoring, collections, group campaigns, checkout, or seller-account connectivity.
+## Confirmed vs proposed / 확정과 제안
 
-## Existing endpoints
+- Logan: search/matching and better consumer information are explicitly requested in Ryan's Discord message. Consumer/seller web UI is also Logan's current requested scope.
+- HM: extension + screenshot/multimodal capture, per Logan's assignment.
+- Ryan: data normalization/storage, backend coordination and final integration are a proposed split, **not a verified named assignment in the speaker-unlabeled transcript**.
+- Local execution was discussed. Which teammate hosts it still needs agreement.
 
-| Method and path | Purpose |
-| --- | --- |
-| `GET /api/state` | Prepared products, sample/imported evidence, local marks, URL mappings, summary |
-| `POST /api/rank` | `{query, weights, productId?}` ranks local content |
-| `POST /api/discover` | `{query, mode?, weights?}` explicitly queries main Needle `/discover`, adapts offers, and ranks listing evidence |
-| `POST /api/events` | `{recordId, action, attribute, remove?}` upserts or removes a local mark |
-| `GET /api/insights?productId=...` | Aggregate local action/reason/source counts |
-| `POST /api/listings` | `{productId, url, remove?}` stores a product URL mapping; does not crawl or contact the merchant |
-| `POST /api/import` | `{records}` imports at most 200 validated records with `Authorization: Bearer <LOGAN_IMPORT_TOKEN>` |
+Logan은 검색·매칭 및 소비자 정보/웹 화면을 구현합니다. HM은 확장/캡처 담당입니다. Ryan의 세부 역할과 최종 호스트는 확인이 필요합니다. 이 문서를 이미 합의된 개인별 업무 배정으로 취급하지 마세요.
 
-Event actions are `convinced`, `group_interest`, `buy_intent`, and `explore`. Each record/action pair has at most one current mark. These marks represent one local workspace, not unique customers, orders, conversion, or purchase probabilities.
+## Existing team backend
 
-Imported records require `id` beginning `team-`, `productId`, `title`, `text`, HTTP(S) `url`, and `kind` (`review` or `listing`). Optional `platform` and `creator` are display metadata. The server checks URL syntax but does not verify source claims or retrieve those URLs. Imported content is labelled `imported`; prepared reviews and authors are fictional examples.
+Logan's UI → POST `/api/discover` → existing API `POST http://127.0.0.1:4318/discover` with `{selection:{text},mode}` → existing SearchResponse → `fromSearchResponse()` → `rank()`.
 
-## Persistence and access
+Existing offers remain product listings. This module neither relabels listings as customer reviews nor invents observed prices. No modifications are required to the extension for this standalone flow. To rank extension results directly, import `rank` and `fromSearchResponse` from `logan/algorithm.mjs` in the owning backend and apply them to the existing response. The owner should decide where to surface the additional evidence fields.
 
-`LOGAN_DATA_DIR` defaults to ignored `logan/data/`. Its `workspace.json` contains local marks, mappings, and imported evidence. It is independent from Needle's SQLite database. Server binds to loopback and checks Host and Origin. Import token is configured server-side. This is not production multi-user authorization.
+## Collection handoff
 
-`NEEDLE_API_URL` defaults to `http://127.0.0.1:4318`; only explicit connected-search requests invoke it. Tests do not invoke connected search or external services. The forwarded request carries selection text and sample/live mode, not a browsing history or raw screenshots.
+`POST /api/import`, `Content-Type: application/json`, `Authorization: Bearer $LOGAN_IMPORT_TOKEN`.
 
-## Future integration work (not implemented here)
+```json
+{"records":[{"id":"team-example-1","productId":"headphones","title":"User review","text":"Comfortable but not affordable.","url":"https://example.com/review","platform":"YouTube","creator":"Author name","kind":"review"}]}
+```
 
-1. Map Logan's broad product IDs to Needle's actual offer IDs before joining data.
-2. Feed confirmed preferences into HookRank; retain Needle's separate intent confidence/readiness scores.
-3. Route real saves and conditional group pledges through the main commerce API. A Logan group-interest mark has no budget, currency, expiry, participant count, or threshold.
-4. Preserve source provenance, revocation, and independent permission to share browsing-derived information. Do not automatically copy private cursor evidence into seller exports.
-5. Connected discovery results currently render separately and are not eligible for `/api/events` unless explicitly imported and mapped. No automatic synchronization is provided.
+This is a schema example, not a real review. `id` must start `team-`; batches are atomic validation, max 200 records, text max 20,000 characters; repeated IDs update existing records. `origin` is set to `imported` by the server. Keep audio transcription/OCR in `text`; maintain raw media and richer metadata in the team-owned system. Do not send secrets or unnecessary personal data.
 
-The seller view displays local summaries and saved URLs. It is not a retailer integration and performs no seller messaging, ordering, payment, or crawling.
+For current demo tabs, map productId to `headphones`, `chair`, `tent`, `laptop`; extend `sample.mjs` products deliberately when integrating the team's catalog. No fuzzy product identity mapping is assumed.
+
+## Other endpoints
+
+- `GET /api/state`: local demo workspace and labeled records.
+- `POST /api/rank`: `{query, weights:{price:3}, productId?}` → results with components, attributes and evidence. No model calls.
+- `POST /api/events`: `{recordId, attribute, action, remove?}`. Actions: `convinced`, `group_interest`, `buy_intent`, `explore`. Unique record/action in this local workspace; not global user tracking.
+- `POST /api/listings`: `{productId,url,remove?}` stores mapping; no crawl.
+- `GET /api/insights?productId=headphones`: aggregate reasons/actions/platforms/origins. No raw URL, text or identity in the feed.
+
+The server binds to loopback and rejects foreign origins/hosts. This is a local demonstration boundary, not a production auth system. Use the team's database/auth adapters before multi-user deployment. Keys remain server-side and are not included in the delivery.
+
+## Run together / 함께 실행
+
+1. Team: follow root README and run existing API on 4318.
+2. Logan: `cd logan && npm start` → 4320.
+3. Open 4320; review demo content and connected product search.
+4. Set import token locally and ingest normalized content.
+5. Verify product IDs and raw-source permissions, then integrate the pure algorithm where the team needs it.
+
+No final server ownership or production deployment is silently assumed.
+
+## Connected intent demo boundary
+
+The root app's SQLite intent memory, collections and conditional group pledges remain independent of Logan's local JSON events. HookRank ranks relevance; it does not estimate purchase readiness. Connect them only through explicit product-ID mapping and a user-controlled sharing boundary. The root connected demo walkthrough is in `../../docs/CONNECTED_DEMO.md`. No cursor browsing evidence is currently exported to sellers.

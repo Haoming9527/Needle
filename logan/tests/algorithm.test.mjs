@@ -1,59 +1,10 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { extract, rank, fromSearchResponse } from "../algorithm.mjs";
-const record = (id, text) => ({
-  id,
-  productId: "lunch",
-  title: "Lunch box",
-  text,
-});
-test("explicit preferences reorder evidence and expose score components", () => {
-  const records = [
-    record("a", "Beautiful minimal design."),
-    record("b", "Portable and easy to carry."),
-  ];
-  assert.equal(rank(records, { weights: { convenience: 3 } })[0].id, "b");
-  assert.equal(rank(records, { weights: { design: 3 } })[0].id, "a");
-  assert.ok(
-    rank(records, { weights: { design: 3 } })[0].components.affinity > 0,
-  );
-});
-test("negation suppresses positive attributes in English and Korean", () => {
-  assert.equal(extract("Not affordable. 저렴하지 않다.").scores.price, 0);
-  assert.ok(extract("Affordable. 저렴하다.").scores.price > 0);
-});
-test("duplicate content and repeated phrases cannot inflate evidence", () => {
-  const once = extract("Portable.").scores.convenience;
-  assert.equal(
-    extract("Portable. Portable. Portable.").scores.convenience,
-    once,
-  );
-  assert.equal(
-    rank([record("a", "Portable"), record("b", "  PORTABLE  ")]).length,
-    1,
-  );
-});
-test("query filtering excludes irrelevant content and adapter preserves listing provenance", () => {
-  assert.deepEqual(
-    rank([record("a", "Portable"), record("b", "Comfortable")], {
-      query: "portable",
-    }).map((x) => x.id),
-    ["a"],
-  );
-  const result = fromSearchResponse({
-    offers: [
-      {
-        id: "offer",
-        title: "Lunch box",
-        description: "Portable",
-        dataOrigin: "sample",
-        price: 20,
-        currency: "USD",
-        priceIsIllustrative: true,
-      },
-    ],
-  });
-  assert.equal(result[0].kind, "listing");
-  assert.equal(result[0].creator, null);
-  assert.equal(result[0].priceIsIllustrative, true);
-});
+import test from 'node:test';import assert from 'node:assert/strict';
+import {extract,rank,fromSearchResponse} from '../algorithm.mjs';
+const doc=(id,text)=>({id,productId:'p',title:'chair',text});
+test('negated English and Korean attributes are not positive evidence',()=>{for(const text of ['not affordable','not very comfortable','저렴하지 않다','편리하지 않다'])assert.ok(Object.values(extract(text).scores).every(v=>v===0),text)});
+test('attribute priorities change result ordering',()=>{const docs=[doc('a','affordable value for money'),doc('b','beautiful sleek design')];assert.equal(rank(docs,{weights:{price:3}})[0].id,'a');assert.equal(rank(docs,{weights:{design:3}})[0].id,'b')});
+test('deduplication blocks repeated content and repetition cannot inflate affinity',()=>{const a=doc('a','affordable');assert.equal(rank([a,{...a,id:'b'}]).length,1);assert.equal(extract('affordable '.repeat(100)).scores.price,extract('affordable').scores.price)});
+test('queries do not return unrelated matches',()=>{assert.deepEqual(rank([doc('a','beautiful')],{query:'headphones'}),[])});
+test('BM25 finite score with absent terms and empty documents',()=>{assert.ok(rank([doc('a','')],{query:'chair'})[0].score>=0)});
+test('product identity is a hard filter',()=>{assert.equal(rank([doc('a','cheap'),{...doc('b','cheap'),productId:'other'}],{productId:'p'}).length,1)});
+test('listing adapter preserves origin and never invents reviews or prices',()=>{const [r]=fromSearchResponse({offers:[{id:'a',title:'Headphones',description:'Lightweight',dataOrigin:'sample',price:null,currency:null}]});assert.equal(r.kind,'listing');assert.equal(r.origin,'sample');assert.equal(r.url,null);assert.equal(r.price,null)});

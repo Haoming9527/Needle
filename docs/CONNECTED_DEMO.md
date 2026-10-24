@@ -34,7 +34,7 @@ The key demo reveal now reads visually as two source cards → one tentative que
 
 - `IntentStore` shares the existing SQLite connection. Durable action history preserves stable observations, deduplicates related actions, and retracts cart/group interest back to earlier readiness. Memory is opt-in. Removal works while recording is paused.
 - `CommerceStore` stores saved inspiration independently of one-hour discovery sessions. Lifecycle IDs make retry safe while permitting deletion and re-save. Named collections reference those durable items without adding evidence points.
-- Group campaigns have one local participant and two clearly synthetic participants. Repeated joins and campaign creation do not inflate counts. Price/currency eligibility, withdrawal, and expiry are checked server-side. Threshold crossing has no checkout side effect.
+- Group campaigns have one local participant and two clearly synthetic participants. Repeated joins and campaign creation do not inflate counts. Price/currency eligibility, withdrawal, and expiry are checked server-side. Threshold crossing has no checkout side effect. Current scoring retracts on withdrawal; automatic removal of expired pledge evidence remains a follow-up beyond the short demo.
 - Product recommendation saves use a local source origin, so they cannot fabricate new cross-site corroboration. Two complementary external source topics are required. These demo rules recognise meal prep/commuting and recording/audio, not arbitrary human needs. Tags are a bounded rule taxonomy; the existing AI still handles product vision and search.
 - Cursor Save extracts bounded selected text/labels and a nearby heading, without a screenshot or product search. There is no passive history collection.
 - Intent endpoints: `/intent`, `/intent/consent`, `/intent/observations`, `/intent/hypotheses/:id/feedback`, `/intent/observations/:id/remove`, `/intent/reset`. Commerce endpoints: `/saved-items`, `/collections`, `/group-buys`, and item/group actions.
@@ -42,6 +42,8 @@ The key demo reveal now reads visually as two source cards → one tentative que
 ## Team changes preserved
 
 The implementation integrates remote commit `6f27063`: retailer-neutral search and source labels, currency improvements, selected-image fallbacks, and associated tests. It also preserves `66b7ccf` and `4e9c3c7`, which add the independent `logan/` bilingual shopper/seller workspace and HookRank content ranking.
+
+The latest integration also preserves `219a92f`: generated demo photos, cursor-point crop annotation, clarification replies, and loading progress. These start after explicit Find; Save remains context-only. The combined build is version 0.7.0.
 
 Logan runs separately on port 4320. Its local JSON events do not yet feed the SQLite intent, collections, conditional pledges or cart. Its explicit-search adapter calls Needle's product discovery, but candidate relevance is distinct from purchase readiness. A future bridge needs stable product IDs and an explicit sharing boundary before sending browsing evidence to seller views. For this demo, present Logan as a separate seller-side concept, not an already connected merchant integration.
 

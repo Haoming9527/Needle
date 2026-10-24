@@ -23,7 +23,11 @@ const publicUrl = z
 const imageUrl = z
   .union([
     publicUrl,
-    z.string().regex(/^\/assets\/[A-Za-z0-9_-]+\.(?:svg|png|jpg|jpeg|webp)$/),
+    z
+      .string()
+      .regex(
+        /^\/assets\/(?:photos\/)?[A-Za-z0-9_-]+\.(?:svg|png|jpg|jpeg|webp)$/,
+      ),
   ])
   .nullable();
 const url = publicUrl.nullable();

@@ -14,6 +14,8 @@ class Style {
   }
   setProperty(key: string, value: string) { this.values.set(key, value); }
   get visibility() { return this.values.get('visibility'); }
+  get left() { return this.values.get('left'); }
+  get top() { return this.values.get('top'); }
 }
 class FakeElement {
   parentElement: FakeElement | null = null;
@@ -73,6 +75,14 @@ function findProducts() { button('Find products').emit('click'); }
 function contentMessage(type: string, requestId: string) {
   return new Promise<any>(resolve => { for (const listener of runtimeEvents) listener({ type, requestId }, { id: extensionId }, resolve); });
 }
+function searchResult(needsClarification = false) {
+  return {
+    sessionId: 'test-session', mode: 'sample',
+    interpretation: { name: 'Black instrument', productType: 'mandolin', needsClarification, clarification: needsClarification ? 'Do you mean the black instrument or the shirt?' : null },
+    offers: needsClarification ? [] : [{ id: 'mandolin', title: 'Black F-style mandolin', price: 249, currency: 'USD', match: 'similar', variants: ['Black'], sourceUrl: 'https://example.com/mandolin', referenceUrl: null, dataOrigin: 'sample' }],
+    warnings: [],
+  };
+}
 beforeEach(() => {
   vi.resetModules(); root = new FakeElement('html'); windowEvents = new FakeElement('window'); hits = []; runtimeEvents = new Set();
   sendMessage = vi.fn((message: { type: string }) => message.type === 'NEEDLE_OVERLAY_DISCOVER' ? new Promise(resolve => { finishDiscovery = resolve; }) : Promise.resolve({ ok: true }));
@@ -89,6 +99,7 @@ beforeEach(() => {
 afterEach(() => {
   const state = globalThis as typeof globalThis & { __needleContentDispose?: () => void };
   state.__needleContentDispose?.(); delete state.__needleContentDispose;
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -97,7 +108,7 @@ describe('right-click target selection', () => {
     const div = new FakeElement('div'); hits = [div];
     const target = targetAt(click(div));
     expect(target).toEqual({ kind: 'viewport', element: null });
-    expect(mediaCrop(targetGeometry(target!, 200, 200))).toMatchObject({ x: 0, y: 0, width: 480, height: 480 });
+    expect(mediaCrop(targetGeometry(target!, 200, 200))).toMatchObject({ x: 40, y: 40, width: 320, height: 320 });
     expect(targetText(target!, true)).toEqual({});
   });
   it('finds video underneath a generic player controls layer without an X-specific selector', () => {
@@ -142,7 +153,7 @@ describe('content-script action toolbar', () => {
     const preparation = contentMessage('NEEDLE_PREPARE_CAPTURE', requestId);
     expect(popup().style.visibility).toBe('hidden');
     const response = await preparation;
-    expect(mediaCrop(response.geometry)).toMatchObject({ width: 480, height: 480 });
+    expect(mediaCrop(response.geometry)).toMatchObject({ width: 320, height: 320 });
     await contentMessage('NEEDLE_CAPTURE_FINISHED', requestId);
     expect(popup().style.visibility).toBe('visible');
   });
@@ -202,5 +213,62 @@ describe('content-script action toolbar', () => {
     expect(sendMessage).not.toHaveBeenCalled();
     findProducts();
     expect(sendMessage).toHaveBeenCalledTimes(1); expect(runtimeEvents.size).toBe(1);
+  });
+  it('answers a clarification in the same popup and retains the original selected preview', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    findProducts();
+    const requestId = sendMessage.mock.calls[0][0].requestId;
+    finishDiscovery({ result: searchResult(true), imageDataUrl: 'data:image/jpeg;base64,b3JpZ2luYWw=' });
+    await Promise.resolve();
+    const host = popup(), form = host.shadow!.querySelector('form')!, input = form.querySelector('input')!;
+    expect(form).toBeTruthy();
+    input.value = 'The black instrument on the wall'; input.emit('input');
+    let finishAnswer!: (value: unknown) => void;
+    sendMessage.mockImplementationOnce(() => new Promise(resolve => { finishAnswer = resolve; }));
+    const event = { preventDefault: vi.fn() }; form.emit('submit', event); form.emit('submit', event);
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(sendMessage.mock.calls.filter(([message]) => message.type === 'NEEDLE_OVERLAY_CLARIFY')).toEqual([[{ type: 'NEEDLE_OVERLAY_CLARIFY', requestId, answer: 'The black instrument on the wall' }]]);
+    expect(input.disabled).toBe(true);
+    finishAnswer({ result: searchResult() }); await Promise.resolve();
+    expect(popup()).toBe(host);
+    expect(host.shadow!.querySelector('form')).toBeNull();
+    expect(host.shadow!.querySelector('img')!.src).toBe('data:image/jpeg;base64,b3JpZ2luYWw=');
+    expect(host.shadow!.querySelector('h2')!.textContent).toBe('Black F-style mandolin');
+    expect(button('Buy').disabled).toBe(false);
+  });
+  it('preserves an answer for retry after a failed clarification and ignores completion after cancellation', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    findProducts();
+    finishDiscovery({ result: searchResult(true) }); await Promise.resolve();
+    const host = popup(), form = host.shadow!.querySelector('form')!, input = form.querySelector('input')!;
+    input.value = 'The instrument'; input.emit('input');
+    sendMessage.mockResolvedValueOnce({ error: 'Please retry.' });
+    form.emit('submit', { preventDefault: vi.fn() }); await Promise.resolve();
+    expect(input.value).toBe('The instrument'); expect(input.disabled).toBe(false);
+    expect(form.querySelector('button')!.disabled).toBe(false);
+    let finishAnswer!: (value: unknown) => void;
+    sendMessage.mockImplementationOnce(() => new Promise(resolve => { finishAnswer = resolve; }));
+    form.emit('submit', { preventDefault: vi.fn() });
+    button('×').emit('click');
+    finishAnswer({ result: searchResult() }); await Promise.resolve();
+    expect(root.children).toHaveLength(0);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
+  });
+  it('keeps its anchor unchanged through loading, a question, and a taller result near a viewport edge', async () => {
+    vi.useFakeTimers();
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div'), { clientX: 1250, clientY: 690 }));
+    findProducts();
+    const host = popup(), anchor = [host.style.left, host.style.top];
+    expect(anchor).toEqual(['968px', '352px']);
+    host.box.height = 120; vi.advanceTimersByTime(15000);
+    expect([host.style.left, host.style.top]).toEqual(anchor);
+    finishDiscovery({ result: searchResult(true) }); await Promise.resolve();
+    host.box.height = 310;
+    expect([host.style.left, host.style.top]).toEqual(anchor);
+    const form = host.shadow!.querySelector('form')!, input = form.querySelector('input')!;
+    input.value = 'The instrument'; input.emit('input');
+    sendMessage.mockResolvedValueOnce({ result: searchResult() });
+    form.emit('submit', { preventDefault: vi.fn() }); await Promise.resolve();
+    expect([host.style.left, host.style.top]).toEqual(anchor);
   });
 });

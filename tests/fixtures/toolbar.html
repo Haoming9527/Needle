@@ -12,6 +12,7 @@
   <main>
     <h1>Right-click anywhere on these surfaces</h1>
     <p class="intro">Development fixture: the actual Needle content script runs with a <strong>mocked Chrome message bridge</strong> and an <strong>open shadow root for test inspection</strong>. Production keeps its shadow root closed. No screenshot, AI request, cart API, or purchase is executed. Shift + right-click and editable fields should retain the native menu.</p>
+    <p class="intro"><a href="?clarify=1">Test an agent question and reply</a> · <a href="?">Test immediate recommendations</a></p>
     <div class="targets">
       <section><h2>Image with a transparent control layer</h2><div class="surface layered" id="covered-image"><img src="/assets/headphones.svg" alt="Sony WH-1000XM5 headphones"/><div class="cover" id="image-overlay">Right-click this control layer</div></div></section>
       <section><h2>Video with a site menu handler</h2><div class="surface layered" id="covered-video" data-testid="videoPlayer"><video poster="/assets/microphone.svg" aria-label="Shure microphone" preload="none"></video><div class="cover" id="video-overlay">Site video overlay</div></div></section>

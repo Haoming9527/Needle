@@ -1,30 +1,40 @@
-# Needle HookRank v1
+# Needle HookRank v1 / 구매 이유 기반 검색
 
-HookRank is deterministic evidence ranking, not a trained model or a purchase-probability estimator. Implementation: `../algorithm.mjs`.
+## Pipeline / 처리 흐름
 
-## Inputs and computation
+Captured content → team extraction/normalization → `{productId,text,url,...}` → Logan lexical retrieval → attribute evidence → preference-weighted ranking → consumer explanation → explicit user signal → seller aggregate feed.
 
-Records contain a product ID, title, content text, and provenance. Optional inputs are a query, product filter, and explicit positive preference weights for price, design, convenience, performance, durability, and comfort.
+캡처 → 팀의 추출/정규화 → 공통 텍스트 레코드 → 검색 → 속성 근거 → 선호 가중 정렬 → 소비자 설명 → 직접 선택 신호 → 셀러 집계.
 
-1. Filter product IDs when requested, then deduplicate identical normalized content within a product. Different products retain separate records.
-2. Normalize Unicode with NFKC and lowercase. Split tokens using Unicode letter/number sequences. Query tokens use exact token matching; there is no translation, stemming, or semantic embedding.
-3. Compute BM25-style query relevance over title plus text with `k1 = 1.2` and `b = 0.75`.
-4. Extract English/Korean phrases for six attributes. Nearby English/Korean negation changes evidence polarity. This is a small heuristic lexicon, not general language understanding.
-5. For each attribute, count distinct positive and negative matched phrases. Attribute score is `max(0, (positive - negative) / (1 + positive + negative))`. Repeating the same phrase does not increase this value.
-6. Cap each active positive preference weight at five. Affinity is the weighted average of attribute scores.
-7. With query and preferences, score is rounded `65 * normalized BM25 + 35 * affinity`. Query alone uses `100 * normalized BM25`; preferences alone use `100 * affinity`. With neither, scores are zero and IDs break ties.
-8. When a query exists, discard records without any query-token match. Sort score descending, then ID ascending.
+The current module consumes text. It does not claim to transcribe audio, understand raw screenshots, or operate LLM agents. HM/Ryan supply those upstream outputs. No extra LLM call is required for deterministic ranking. A future decision model can route ambiguous evidence to an extraction model, but the current implementation does not label rules as d1-ultra output.
 
-BM25 normalization uses the largest score in the current candidate set. Scores therefore change when candidates change and should not be compared as calibrated measurements across different searches.
+현재 모듈은 텍스트를 입력받습니다. 음성 전사·이미지 이해·에이전트 실행은 팀 상위 파이프라인의 영역입니다. 규칙 기반 결과를 d1-ultra 판단으로 표시하지 않습니다.
 
-## Explanations and limits
+## Formula / 계산
 
-Output includes BM25/affinity components, extracted attributes, matched phrases, negation polarity, and source metadata. Listing descriptions adapted from Needle `SearchResponse` remain listings; they are not represented as independent reviews.
+For each query term, BM25 uses `k1=1.2, b=0.75` and positive smoothed IDF. Retrieval is exact Unicode token based; query scores are divided by the maximum within the candidate set.
 
-The bilingual lexicon does not make queries cross-lingual. Keyword overlap can miss meaning, sarcasm, negation scope, morphological variations, and synonyms. Sample content is illustrative. Current evidence does not establish causal influence, commercial uplift, or the customer's actual intent.
+For attribute a: `A[a] = max(0, (distinct_positive_phrases - distinct_negative_phrases) / (1 + positive + negative))`.
 
-Recommended next validation: human-labelled bilingual relevance examples, negation/error cases, pairwise ranking judgments, and comparison against an unpersonalized baseline. These are proposed experiments, not completed evaluations.
+`affinity = weighted_mean(A[a], selected preferences)`.
 
-## Local checks
+With query + preferences: `score = round(65 * normalized_BM25 + 35 * affinity)`.
+Only query: 100 × normalized BM25. Only preferences: 100 × affinity. Neither: stable ID ordering with zero score. Query terms must match for retrieval; a different product ID is excluded when a product filter is supplied. Scores are relative relevance, never purchase likelihood.
 
-Run `npm test` from `logan/`. Tests cover preference-induced rank changes, selected negation cases, duplicate/repeated-expression saturation, query filtering, listing provenance, packaged assets, reversible local signals, access guards, and missing-file recovery. Server tests use a temporary loopback workspace and never call external search services.
+속성 반복은 동일 표현을 한 번만 세어 과장 효과를 제한합니다. 부정어는 가까운 문맥에서 검사합니다. 콘텐츠 전체가 같은 중복 레코드는 한 번만 정렬합니다. 사용자가 선택한 콘텐츠를 그 자체의 검색 점수에 다시 더하지 않아 단순 인기 순환을 피합니다.
+
+## Limits and validation / 한계와 검증
+
+- Handwritten lexicon, not trained POS tagging or multilingual embeddings. Korean inflections/query synonym coverage is limited; this is not general sentiment understanding.
+- Sarcasm, mixed clauses, double negation and implicit negatives need labeled-data evaluation. Negation is a heuristic, not a guarantee.
+- No cross-product identity inference. Product IDs must be aligned upstream.
+- No creator fee/attribution dataset: do not label content fit as cost efficiency.
+- Demo signal persistence is one local workspace, not a person-level profile system. Avoid multi-user interpretations.
+- Next evaluation: manually label EN/KO review relevance and attribute polarity; hold out creators/products; measure nDCG@5, precision@5 and polarity precision/recall; compare BM25 alone against weighted attributes. No benchmark performance is claimed.
+
+## References / 참고
+
+- Stanford, Introduction to Information Retrieval, Okapi BM25: https://nlp.stanford.edu/IR-book/html/htmledition/okapi-bm25-a-non-binary-model-1.html
+- Pontiki et al., SemEval-2014 Task 4: Aspect Based Sentiment Analysis: https://aclanthology.org/S14-2004/
+
+These inform the design; this module is an original deterministic implementation, not a reproduction of a trained research model.

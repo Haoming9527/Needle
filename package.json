@@ -1,6 +1,6 @@
 {
   "name": "needle-shopping",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "description": "A browser shopping companion for finding products across stores.",

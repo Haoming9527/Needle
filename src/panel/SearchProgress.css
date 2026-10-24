@@ -1,0 +1,26 @@
+.find-progress{margin:18px 0 24px;padding:12px 14px 0;border:1px solid #dce3f3;border-radius:13px;background:#f8faff;overflow:hidden}
+.find-progress-top{display:flex;align-items:center;gap:8px;margin-bottom:13px}
+.find-progress-label{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:600;color:#4c5e85}
+.activity-dot{width:6px;height:6px;border-radius:50%;background:#3156e8;box-shadow:0 0 0 4px #3156e80b;animation:needle-breathe 2.4s ease-in-out infinite}
+.find-progress-time{margin-left:auto;color:#788398;font-size:10px;font-variant-numeric:tabular-nums}
+.find-progress-top .icon-button{width:24px;height:24px}
+.find-progress-main{display:flex;gap:17px;align-items:center;padding:0 0 17px}
+.find-scan{width:102px;height:110px;position:relative;flex:0 0 102px;overflow:hidden;border-radius:8px;background:#edf2fc}
+.find-scan .product-image,.find-scan-mark{width:100%;height:100%;display:grid;place-items:center;border-radius:8px}
+.find-scan .product-image img{width:100%;height:100%;object-fit:cover;filter:saturate(.88)}
+.find-scan-mark{color:#3156e8}
+.find-scan-corners{position:absolute;inset:8px;border:1px solid #7b94ef;border-radius:3px;opacity:.65}
+.find-scan-line{position:absolute;left:0;right:0;top:0;height:30px;background:linear-gradient(transparent,#6486ef33);border-bottom:1px solid #6486ef;animation:needle-scan 3.6s ease-in-out infinite;pointer-events:none}
+.find-progress-copy{min-width:0;flex:1}
+.find-progress-copy strong{font-size:14px;line-height:1.45;font-weight:630;display:block;color:#263754;letter-spacing:-.2px}
+.find-progress-copy p{font-size:10px;line-height:1.65;color:#7b8598;margin-top:7px}
+.find-progress-dots{display:flex;gap:5px;margin-top:14px}
+.find-progress-dots i{height:3px;width:16px;border-radius:3px;background:#ccd7f5;animation:needle-dot 1.8s ease-in-out infinite}
+.find-progress-dots i:nth-child(2){animation-delay:.2s}.find-progress-dots i:nth-child(3){animation-delay:.4s}
+.find-progress-tip{border-top:1px solid #e3e8f4;padding:12px 0;font-size:10px;line-height:1.5;color:#64738e;min-height:40px;animation:needle-tip-in .35s ease-out}
+@keyframes needle-scan{0%,100%{transform:translateY(-30px);opacity:0}15%,85%{opacity:1}50%{transform:translateY(110px)}}
+@keyframes needle-breathe{50%{box-shadow:0 0 0 6px #3156e80b;opacity:.45}}
+@keyframes needle-dot{0%,100%{background:#ccd7f5}50%{background:#5778dc}}
+@keyframes needle-tip-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:340px){.find-progress-main{gap:12px}.find-scan{width:84px;height:100px;flex-basis:84px}.find-progress-copy strong{font-size:13px}}
+@media(prefers-reduced-motion:reduce){.activity-dot,.find-scan-line,.find-progress-dots i,.find-progress-tip{animation:none}.find-scan-line{top:45%;opacity:.6}.find-progress-dots i:nth-child(2){background:#5778dc}}

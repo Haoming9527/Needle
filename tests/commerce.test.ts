@@ -123,8 +123,23 @@ describe("durable inspiration and group buys", () => {
       200,
     );
     expect(store.getSavedItem("seed").offer?.imageUrl).toBe("/assets/bag.svg");
+    const photo = {
+      ...seed,
+      id: "photo-seed",
+      offer: { ...offer, imageUrl: "/assets/photos/headphones.png" },
+    };
+    expect((await request(app).post("/saved-items").send(photo)).status).toBe(
+      200,
+    );
+    expect(store.getSavedItem("photo-seed").offer?.imageUrl).toBe(
+      "/assets/photos/headphones.png",
+    );
+
     for (const invalid of [
       { imageUrl: "/assets/../secret.svg" },
+      { imageUrl: "/assets/photos/../secret.png" },
+      { imageUrl: "/assets/photos/%2e%2e/secret.png" },
+      { imageUrl: "/assets/untrusted/headphones.png" },
       { sourceUrl: "javascript:alert(1)" },
       { referenceUrl: "javascript:alert(1)" },
       { imageUrl: "http://127.0.0.1/private" },

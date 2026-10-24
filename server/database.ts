@@ -75,8 +75,8 @@ export class NeedleDatabase {
 
   saveSession(session: Omit<StoredSession, 'createdAt'>): void {
     const createdAt = Date.now();
-    const { text, pageUrl, pageTitle, capturedAt } = session.selection;
-    const stored: StoredSession = { ...session, selection: { text, pageUrl, pageTitle, capturedAt }, createdAt };
+    const { text, pageUrl, pageTitle, capturedAt, focus, clarifications } = session.selection;
+    const stored: StoredSession = { ...session, selection: { text, pageUrl, pageTitle, capturedAt, focus, clarifications }, createdAt };
     this.db.prepare('DELETE FROM sessions WHERE created_at < ?').run(createdAt - 3_600_000);
     this.db.prepare('INSERT INTO sessions(id,created_at,data) VALUES (?,?,?)').run(session.result.sessionId, createdAt, JSON.stringify(stored));
   }

@@ -3,8 +3,8 @@ import { mediaCrop, sameGeometry, type MediaGeometry } from '../src/extension/ge
 
 const base: MediaGeometry = { x: 100, y: 40, width: 1000, height: 600, viewportWidth: 1200, viewportHeight: 800, pointerX: 900, pointerY: 300, scrollX: 0, scrollY: 0 };
 describe('object crop geometry', () => {
-  it('captures only a 480px region around the pointer', () => {
-    expect(mediaCrop(base)).toEqual({ x: 620, y: 60, width: 480, height: 480, viewportWidth: 1200, viewportHeight: 800 });
+  it('captures only a 320px region around the pointer', () => {
+    expect(mediaCrop(base)).toEqual({ x: 740, y: 140, width: 320, height: 320, viewportWidth: 1200, viewportHeight: 800 });
   });
   it('clamps partially visible media to viewport and retains small images', () => {
     expect(mediaCrop({ ...base, x: -40, width: 300, height: 160, pointerX: 10, pointerY: 100 })).toMatchObject({ x: 0, y: 40, width: 260, height: 160 });
@@ -31,6 +31,7 @@ const tab = { id: 12, windowId: 1, url: 'https://x.com/example/status/123', titl
 const sender = { id: 'a'.repeat(32), tab, url: tab.url, frameId: 0 };
 let api: any;
 let saved: Record<string, any>;
+let drawing: any;
 const result = { sessionId: '11111111-1111-4111-8111-111111111111', mode: 'sample', interpretation: { name: 'Microphone' }, offers: [{ id: 'mic', title: 'Microphone', variants: ['Black'] }], warnings: [] };
 function message(value: Record<string, unknown>, source: unknown = sender) {
   return new Promise<any>(resolve => api.runtime.onMessage.emit(value, source, resolve));
@@ -46,12 +47,25 @@ beforeEach(async () => {
   vi.stubGlobal('chrome', api);
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } })));
   vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ width: 2400, height: 1600, close: vi.fn() })));
-  vi.stubGlobal('OffscreenCanvas', class { constructor(public width: number, public height: number) {} getContext() { return { drawImage: vi.fn() }; } async convertToBlob() { return new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }); } });
+  drawing = { drawImage: vi.fn(), beginPath: vi.fn(), arc: vi.fn(), stroke: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(), fillRect: vi.fn(), fillText: vi.fn() };
+  vi.stubGlobal('OffscreenCanvas', class { encoded = 0; constructor(public width: number, public height: number) {} getContext() { return drawing; } async convertToBlob() { return new Blob([new Uint8Array(++this.encoded === 1 ? [1, 2, 3] : [4, 5, 6])], { type: 'image/jpeg' }); } });
   (await import('../src/extension/overlay-background')).installOverlayMessages();
 });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('automatic right-click workflow', () => {
+  it('sends the exact off-center cursor point and a marked crop to vision', async () => {
+    const edge = { ...base, pointerX: 105, pointerY: 45 };
+    api.tabs.sendMessage.mockResolvedValue({ geometry: edge });
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-edge' });
+    const request = JSON.parse(vi.mocked(fetch).mock.calls[0][1]!.body as string);
+    expect(request.selection.focus).toEqual({ x: 5 / 320, y: 5 / 320 });
+    expect(request.selection.annotatedImageDataUrl).toBe('data:image/jpeg;base64,BAUG');
+    expect(request.selection.imageDataUrl).toBe('data:image/jpeg;base64,AQID');
+    expect(drawing.arc).toHaveBeenCalledWith(10, 10, 20, 0, Math.PI * 2);
+    expect(drawing.fillText.mock.calls[0][0]).toBe('CURSOR • TARGET');
+    expect(drawing.drawImage.mock.calls[0].slice(1)).toEqual([200, 80, 640, 640, 0, 0, 640, 640]);
+  });
   it('accepts a gesture from an ordinary website, not only X', async () => {
     const website = { ...tab, url: 'https://example.com/products', title: 'A product page' };
     api.tabs.query.mockResolvedValue([website]);
@@ -146,5 +160,42 @@ describe('automatic right-click workflow', () => {
     expect(invalid.error).toBeTruthy(); expect(fetch).toHaveBeenCalledTimes(1);
     await message({ type: 'NEEDLE_OVERLAY_CART', requestId: 'selection-123', offerId: 'mic', variant: 'Black' });
     expect(vi.mocked(fetch).mock.calls[1][0]).toBe('http://127.0.0.1:4318/cart');
+  });
+  it('answers a question with the original marked frame and buys from the new result', async () => {
+    const question = { ...result, interpretation: { name: 'Object', needsClarification: true, clarification: 'The guitar or the shirt?' }, offers: [] };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(question));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-answer' });
+    const response = await message({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: 'selection-answer', answer: 'The black guitar on the left' });
+    expect(response.result).toEqual(result);
+    expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+    const [url, init] = vi.mocked(fetch).mock.calls[1];
+    const body = JSON.parse(init!.body as string);
+    expect(url).toBe('http://127.0.0.1:4318/clarify');
+    expect(body).toMatchObject({ sessionId: question.sessionId, answer: 'The black guitar on the left', selection: { annotatedImageDataUrl: 'data:image/jpeg;base64,BAUG', imageDataUrl: 'data:image/jpeg;base64,AQID', focus: { x: 0.5, y: 0.5 } } });
+    await message({ type: 'NEEDLE_OVERLAY_BUY', requestId: 'selection-answer', offerId: 'mic' });
+    expect(saved['needle.selection'].selection.clarifications).toEqual([{ question: 'The guitar or the shirt?', answer: 'The black guitar on the left' }]);
+    expect(saved['needle.selection'].result).toEqual(result);
+  });
+  it('keeps a failed question available for retry without capturing another frame', async () => {
+    const question = { ...result, interpretation: { needsClarification: true, clarification: 'Which item?' }, offers: [] };
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json(question));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-retry' });
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('offline'));
+    expect((await message({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: 'selection-retry', answer: 'Guitar' })).error).toBeTruthy();
+    expect(saved['needle.overlay.12'].result).toEqual(question);
+    expect((await message({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: 'selection-retry', answer: 'Guitar' })).result).toEqual(result);
+    expect(api.tabs.captureVisibleTab).toHaveBeenCalledTimes(1);
+  });
+  it('discards a clarification when the popup is cancelled', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...result, interpretation: { needsClarification: true, clarification: 'Which item?' }, offers: [] }));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-cancel-answer' });
+    let release!: () => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(Response.json(result)); }));
+    const pending = message({ type: 'NEEDLE_OVERLAY_CLARIFY', requestId: 'selection-cancel-answer', answer: 'Guitar' });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await message({ type: 'NEEDLE_OVERLAY_CANCEL', requestId: 'selection-cancel-answer' });
+    release();
+    expect((await pending).error).toContain('cancelled');
+    await vi.waitFor(() => expect(saved['needle.overlay.12']).toBeUndefined());
   });
 });

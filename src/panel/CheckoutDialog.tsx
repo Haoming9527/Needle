@@ -5,7 +5,12 @@ import { offerSource } from '../../shared/offer-source';
 import { apiRequest } from './api';
 import { formatMoney, ProductImage } from './ui';
 
-export function assetUrl(url: string | null | undefined) { return url?.startsWith('/assets/') ? url.slice(1) : url; }
+const legacyPhotos: Record<string, string> = { headphones: 'headphones', bag: 'bag', lamp: 'lamp', microphone: 'podcast', 'boom-arm': 'boom-arm', laptop: 'laptop', podcast: 'podcast', scene: 'workspace' };
+export function assetUrl(url: string | null | undefined) {
+  const legacy = url?.match(/^\/?assets\/([\w-]+)\.svg$/)?.[1];
+  if (legacy && legacyPhotos[legacy]) return `assets/photos/${legacyPhotos[legacy]}.png`;
+  return url?.startsWith('/assets/') ? url.slice(1) : url;
+}
 export interface CheckoutSelection { offer: Offer; sessionId: string; action: 'buy' | 'cart'; cartItemId?: string; variant?: string | null; quantity?: number; fallbackSrc?: string | null }
 
 export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: initialVariant, quantity = 1, fallbackSrc, onClose, onComplete }: CheckoutSelection & { onClose: () => void; onComplete: (order?: DemoOrder) => void }) {

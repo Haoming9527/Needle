@@ -3,18 +3,19 @@ import type { MediaGeometry } from '../../src/extension/geometry';
 
 // This fixture replaces only the page-world runtime bridge. The content script
 // stays unchanged, and all right-clicks must be real browser input (isTrusted).
-type Message = { type?: string; requestId?: string; offerId?: string; variant?: string };
+type Message = { type?: string; requestId?: string; offerId?: string; variant?: string; answer?: string };
 type Reply = { geometry?: MediaGeometry; text?: string; context?: string; error?: string };
 type Listener = (message: Message, sender: { id: string }, respond: (value: Reply) => void) => unknown;
 const runtimeId = 'a'.repeat(32);
 const listeners = new Set<Listener>();
-const counts = { discover: 0, cart: 0, buy: 0, cancel: 0, siteMenu: 0 };
+const counts = { save: 0, discover: 0, clarify: 0, cart: 0, buy: 0, cancel: 0, siteMenu: 0 };
+const askQuestion = new URLSearchParams(location.search).has('clarify');
 const cancelled = new Set<string>();
 const selections = new Map<string, SearchResponse>();
 const status = document.getElementById('bridge-status')!;
 const detail = document.getElementById('bridge-detail')!;
 const counter = document.getElementById('bridge-counts')!;
-function count() { counter.textContent = `Discover: ${counts.discover} · Cart: ${counts.cart} · Buy: ${counts.buy} · Cancel: ${counts.cancel} · Site menu: ${counts.siteMenu}`; }
+function count() { counter.textContent = `Save: ${counts.save} · Discover: ${counts.discover} · Clarify: ${counts.clarify} · Cart: ${counts.cart} · Buy: ${counts.buy} · Cancel: ${counts.cancel} · Site menu: ${counts.siteMenu}`; }
 function report(message: string, data?: unknown) { status.textContent = message; if (data !== undefined) detail.textContent = JSON.stringify(data, null, 2); count(); }
 function emit(type: string, requestId: string): Promise<Reply> {
   return new Promise(resolve => {
@@ -45,17 +46,38 @@ async function sendMessage(message: Message): Promise<unknown> {
   if (message.type === 'NEEDLE_OVERLAY_CANCEL') {
     counts.cancel++; cancelled.add(id); selections.delete(id); report('Cancelled through the actual popup.'); return { ok: true };
   }
+  if (message.type === 'NEEDLE_OVERLAY_SAVE') {
+    const context = await emit('NEEDLE_READ_CONTEXT', id);
+    if (context.error) return context;
+    counts.save++; report('Saved through the mock bridge. No screenshot or discovery occurred.', context);
+    return { ok: true };
+  }
   if (message.type === 'NEEDLE_OVERLAY_DISCOVER') {
     counts.discover++; report('Gesture received. Preparing the selected area…');
     const prepared = await emit('NEEDLE_PREPARE_CAPTURE', id);
     await emit('NEEDLE_CAPTURE_FINISHED', id);
     if (prepared.error) { report(prepared.error); return prepared; }
-    report('Mock result pending. The three controls should already be visible.', { text: prepared.text ?? null, geometry: prepared.geometry });
+    report('Mock result pending. The selected action is loading; Cancel remains available.', { text: prepared.text ?? null, geometry: prepared.geometry });
     await new Promise(resolve => window.setTimeout(resolve, 800));
     if (cancelled.has(id)) return { error: 'Cancelled.' };
     const result = sample(prepared.text);
+    if (askQuestion) {
+      result.interpretation.needsClarification = true;
+      result.interpretation.clarification = 'Do you mean the microphone or the headphones near your cursor?';
+      result.offers = [];
+    }
     selections.set(id, result);
-    report('Prepared result delivered. No network calls or captures occurred.', { text: prepared.text ?? null, geometry: prepared.geometry, variants: result.offers[0].variants });
+    report('Prepared result delivered. No network calls or captures occurred.', { text: prepared.text ?? null, geometry: prepared.geometry, variants: result.offers[0]?.variants });
+    return { result };
+  }
+  if (message.type === 'NEEDLE_OVERLAY_CLARIFY') {
+    if (!selections.get(id)?.interpretation.needsClarification || !message.answer?.trim()) return { error: 'Answer the current fixture question.' };
+    counts.clarify++; report('Answer received. Reusing the original selection; no new capture.', { requestId: id, answer: message.answer });
+    await new Promise(resolve => window.setTimeout(resolve, 1200));
+    if (cancelled.has(id)) return { error: 'Cancelled.' };
+    const result = sample(message.answer);
+    selections.set(id, result);
+    report('Clarification resolved through the actual popup. This is a mock result.', { requestId: id, answer: message.answer, name: result.interpretation.name });
     return { result };
   }
   if (message.type === 'NEEDLE_OVERLAY_CART' || message.type === 'NEEDLE_OVERLAY_BUY') {

@@ -2,6 +2,17 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## v0.5 editorial photography and loading
+
+- Generated seven realistic photo assets with the built-in image generator and saved them under `public/assets/photos/`; full prompts are indexed in `PHOTO-PROMPTS.md`.
+- Rebuilt `demo.html` as The Everyday Edit article with working section navigation, editorial copy, and a discreet right-click shopping hint. Reviewed the actual article at desktop, 390px, and 320px widths.
+- Catalog, welcome examples, studio preview, and legacy saved-item image paths now use the generated photos. Existing cart/order records were not rewritten.
+- Panel loading includes a scan animation over the selected image, real elapsed time, rotating tips, and Stop. Popup loading retains exactly three action buttons and adds a small animated search lens. Both respect reduced motion; timers stop on completion, error, or cancellation. No fake percentage or completed backend stage is shown.
+- Browser preview verified the timer/tip changes and Stop removes the loading component. The popup retains passing content-script tests.
+- An actual image-only request using the new headphone photo completed in 11.1 seconds, correctly identified black over-ear headphones with brand/model unknown, and returned three priced catalog alternatives using the new photos.
+- All 121 tests, TypeScript, production build, and extension package validation passed. Native Chrome/X verification still requires reloading the installed extension and testing there.
+- Screenshots: `.local/screenshots/needle-article-v5.jpg` and `.local/screenshots/needle-loading-v5.jpg`.
+
 ## v0.4.1 image fallback
 
 - Missing or broken result photos now use the buyer's selected image/crop, including alternatives and checkout. The popup already uses the selected crop.
