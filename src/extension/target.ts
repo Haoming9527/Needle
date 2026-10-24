@@ -1,6 +1,6 @@
 import type { MediaGeometry } from './geometry';
 
-export interface ShoppingTarget { element: Element | null; kind: 'media' | 'viewport' }
+export interface ShoppingTarget { element: Element | null; kind: 'media' | 'viewport'; contextElement?: Element }
 const visualSelector = 'video,img,canvas,svg';
 const editableSelector = 'input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"]';
 const playerSelector = '[data-testid="videoPlayer"],[data-testid="videoComponent"],[data-testid="tweetPhoto"],[data-testid="videoPlayerContainer"]';
@@ -56,9 +56,11 @@ export function targetGeometry(target: ShoppingTarget, pointerX: number, pointer
 }
 
 export function targetText(target: ShoppingTarget, onX: boolean): { text?: string; context?: string } {
-  const element = target.element;
+  const element = target.element ?? target.contextElement;
   if (!element) return {};
-  const text = element.matches('img') ? element.getAttribute('alt') || element.getAttribute('title') : element.matches('video') ? element.getAttribute('aria-label') : null;
-  const context = onX ? element.closest('article')?.querySelector('[data-testid="tweetText"]')?.textContent : null;
+  if (element.closest(editableSelector)) return {};
+  const text = element.matches('img') ? element.getAttribute('alt') || element.getAttribute('title') : element.matches('video') ? element.getAttribute('aria-label') : element.matches('p,h1,h2,h3,figcaption') ? element.textContent : null;
+  const container = element.closest('figure,article,section');
+  const context = onX ? element.closest('article')?.querySelector('[data-testid="tweetText"]')?.textContent : container?.querySelector('figcaption,h1,h2,h3')?.textContent;
   return { text: text?.slice(0, 400) || undefined, context: context?.slice(0, 600) || undefined };
 }

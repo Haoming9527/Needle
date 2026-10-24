@@ -6,7 +6,7 @@ interface Popup {
   id: string; target: ShoppingTarget; pointerX: number; pointerY: number; host: HTMLDivElement; details: HTMLDivElement;
   status: HTMLParagraphElement; title: HTMLHeadingElement; price: HTMLParagraphElement;
   image: HTMLImageElement; offers: HTMLSelectElement; variants: HTMLSelectElement;
-  buy: HTMLButtonElement; cart: HTMLButtonElement; result?: SearchResponse; added: boolean;
+  buy: HTMLButtonElement; cart: HTMLButtonElement; save: HTMLButtonElement; find: HTMLButtonElement; result?: SearchResponse; added: boolean;
 }
 type ContentGlobal = typeof globalThis & { __needleContentDispose?: () => void };
 const contentGlobal = globalThis as ContentGlobal;
@@ -54,9 +54,10 @@ function renderOffer(popup: Popup): void {
   popup.variants.replaceChildren();
   if (!offer) return;
   popup.details.hidden = false;
+  popup.buy.hidden = false; popup.cart.hidden = false; popup.find.hidden = true;
   popup.title.textContent = offer.title;
   popup.price.textContent = formatPrice(offer);
-  popup.status.textContent = `${offer.match === 'exact' ? 'Exact match' : offer.match === 'likely' ? 'Likely match' : 'Similar alternative'} · Coupang`;
+  popup.status.textContent = `${offer.match === 'exact' ? 'Exact match' : offer.match === 'likely' ? 'Likely match' : 'Similar alternative'} · ${offer.dataOrigin === 'sample' ? 'Demo catalog · illustrative terms' : 'Retrieved listing'}`;
   if (offer.variants.length > 1) {
     const placeholder = node('option', 'Choose a variant'); placeholder.value = ''; popup.variants.append(placeholder);
   }
@@ -95,22 +96,35 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
   const price = node('p'); price.className = 'price';
   headings.append(price);
   const details = node('div'); details.className = 'details'; details.hidden = true; details.append(head);
-  const status = node('p', 'Finding this item…'); status.className = 'status'; status.setAttribute('role', 'status');
+  const status = node('p', 'Save an idea, or look for a product.'); status.className = 'status'; status.setAttribute('role', 'status');
   const offers = node('select'); offers.setAttribute('aria-label', 'Recommended item'); offers.hidden = true;
   const variants = node('select'); variants.setAttribute('aria-label', 'Variant'); variants.hidden = true;
   const actions = node('div'); actions.className = 'actions';
   const buy = node('button', 'Buy'); buy.type = 'button'; buy.disabled = true;
   const cart = node('button', 'Add to cart'); cart.type = 'button'; cart.disabled = true;
+  buy.hidden = true; cart.hidden = true;
+  const save = node('button', 'Save inspiration'); save.type = 'button';
+  const find = node('button', 'Find products'); find.type = 'button';
   const cancel = node('button', '×'); cancel.className = 'cancel'; cancel.type = 'button'; cancel.setAttribute('aria-label', 'Cancel');
-  actions.append(buy, cart, cancel); panel.append(actions, details, status, offers, variants); shadow.append(style, panel); document.documentElement.append(host);
+  actions.style.flexWrap = 'wrap';
+  actions.append(save, find, buy, cart, cancel); panel.append(actions, details, status, offers, variants); shadow.append(style, panel); document.documentElement.append(host);
   // Chrome 114+: the top layer keeps the toolbar above fullscreen players and dialogs.
   try { host.setAttribute('popover', 'manual'); host.showPopover(); }
   catch { host.removeAttribute('popover'); }
-  const popup: Popup = { id: crypto.randomUUID(), target, pointerX: x, pointerY: y, host, details, status, title, price, image, offers, variants, buy, cart, added: false };
+  const popup: Popup = { id: crypto.randomUUID(), target, pointerX: x, pointerY: y, host, details, status, title, price, image, offers, variants, buy, cart, save, find, added: false };
   position(popup);
   offers.addEventListener('change', () => renderOffer(popup));
   variants.addEventListener('change', () => { popup.added = false; popup.cart.textContent = 'Add to cart'; updateButtons(popup); });
   cancel.addEventListener('click', dismiss);
+  find.addEventListener('click', () => startDiscovery(popup));
+  save.addEventListener('click', () => {
+    save.disabled = true; popup.status.textContent = 'Saving selected context…';
+    void send<{ error?: string }>({ type: 'NEEDLE_OVERLAY_SAVE', requestId: popup.id }).then(result => {
+      if (current !== popup) return;
+      if (result?.error) { popup.status.textContent = result.error; save.disabled = false; return; }
+      save.textContent = 'Saved'; popup.status.textContent = 'Saved to your collection inbox. Open Needle → Saved to organise it.';
+    }).catch(() => { if (current === popup) { popup.status.textContent = 'Could not save. Try again.'; save.disabled = false; } });
+  });
   for (const [button, type] of [[buy, 'NEEDLE_OVERLAY_BUY'], [cart, 'NEEDLE_OVERLAY_CART']] as const) {
     button.addEventListener('click', () => {
       const offer = chosen(popup);
@@ -132,10 +146,15 @@ function onContextMenu(event: MouseEvent): void {
   if (!connected() || !event.isTrusted || event.shiftKey || (current && event.composedPath().includes(current.host))) return;
   const target = targetAt(event);
   if (!target) return;
+  if (!target.element && event.target instanceof Element) target.contextElement = event.target;
   event.preventDefault(); event.stopImmediatePropagation();
   dismiss();
   const popup = makePopup(target, event.clientX, event.clientY);
   current = popup;
+}
+function startDiscovery(popup: Popup): void {
+  if (current !== popup || popup.find.disabled) return;
+  popup.find.disabled = true; popup.status.textContent = 'Finding this item…';
   void send<{ result?: SearchResponse; imageDataUrl?: string; error?: string }>({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: popup.id }).then(response => {
     if (current !== popup) return;
     popup.host.style.setProperty('visibility', 'visible', 'important');
@@ -156,6 +175,7 @@ function onResize(): void { if (current) position(current); }
 const onMessage: Parameters<typeof chrome.runtime.onMessage.addListener>[0] = (message, sender, respond) => {
   const popup = current;
   if (sender.id !== chrome.runtime.id || !popup || message?.requestId !== popup.id) return;
+  if (message.type === 'NEEDLE_READ_CONTEXT') { respond(targetText(popup.target, isX)); return; }
   if (message.type === 'NEEDLE_CAPTURE_FINISHED') { popup.host.style.setProperty('visibility', 'visible', 'important'); respond({ ok: true }); return; }
   if (!['NEEDLE_PREPARE_CAPTURE', 'NEEDLE_VALIDATE_CAPTURE'].includes(message.type)) return;
   const prepare = () => {

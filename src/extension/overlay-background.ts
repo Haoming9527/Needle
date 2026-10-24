@@ -1,5 +1,6 @@
 import type { CapturedSelection, SearchResponse } from '../../shared/types';
 import { mediaCrop, sameGeometry, type CropBox, type MediaGeometry } from './geometry';
+import { contextTags } from '../../shared/context';
 
 const API = 'http://127.0.0.1:4318';
 const active = new Map<number, { id: string; controller: AbortController }>();
@@ -24,7 +25,7 @@ function senderTab(sender: chrome.runtime.MessageSender): chrome.tabs.Tab | null
   if (sender.tab.url !== sender.url) return null;
   return sender.tab;
 }
-async function request<T>(path: '/discover' | '/cart', body: unknown, signal?: AbortSignal): Promise<T> {
+async function request<T>(path: '/discover' | '/cart' | '/saved-items', body: unknown, signal?: AbortSignal): Promise<T> {
   const requestSignal = signal ?? AbortSignal.timeout(10_000);
   let response: Response;
   try { response = await fetch(`${API}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: requestSignal }); }
@@ -127,6 +128,16 @@ export function installOverlayMessages(): void {
     }
     if (message.type === 'NEEDLE_OVERLAY_DISCOVER') {
       void discover(tab, message.requestId).then(respond).catch(error => respond({ error: error instanceof Error ? error.message : 'Unable to find this item.' }));
+      return true;
+    }
+    if (message.type === 'NEEDLE_OVERLAY_SAVE') {
+      // Save selected semantic context without taking a screenshot or requiring a product match.
+      void chrome.tabs.sendMessage(tab.id!, { type: 'NEEDLE_READ_CONTEXT', requestId: message.requestId }, { frameId: 0 }).then(async context => {
+        const [current] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+        if (current?.id !== tab.id || current.url !== tab.url) throw new Error('The page changed. Select the idea again.');
+        const summary = [context?.text, context?.context].filter(value => typeof value === 'string').join(' · ').slice(0, 800) || tab.title?.slice(0, 300) || 'Saved inspiration';
+        return request('/saved-items', { id: message.requestId, label: (context?.text || tab.title || 'Saved inspiration').slice(0, 160), summary, sourceOrigin: new URL(tab.url!).origin, sourceTitle: tab.title?.slice(0, 200), tags: contextTags(summary), provenance: 'observed' });
+      }).then(() => respond({ ok: true })).catch(error => respond({ error: error instanceof Error ? error.message : 'Could not save inspiration.' }));
       return true;
     }
     if (!['NEEDLE_OVERLAY_BUY', 'NEEDLE_OVERLAY_CART'].includes(message.type) || typeof message.offerId !== 'string' || (message.variant !== undefined && typeof message.variant !== 'string')) return;

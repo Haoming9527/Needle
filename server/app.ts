@@ -12,6 +12,12 @@ import { budgetFromInstruction } from './preferences.js';
 import type { ProductProvider, ProviderResult } from './provider.js';
 import { SampleProvider } from './sample-provider.js';
 import { WebDemoProvider } from './web-demo-provider.js';
+import { IntentStore } from './intent.js';
+import { createIntentRouter } from './intent-routes.js';
+import { CommerceStore } from './commerce.js';
+import { createCommerceRouter } from './commerce-routes.js';
+import { contextTags } from '../shared/context.js';
+import { intentTags } from '../shared/intent.js';
 
 const preferenceSchema = z.object({ budget: z.number().finite().nonnegative().max(1_000_000_000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional() }).strict();
 const selectionSchema = z.object({
@@ -33,6 +39,10 @@ export function createApp(options: AppOptions = {}) {
   app.disable('x-powered-by');
   const database = new NeedleDatabase(config.databaseFile ?? (config.orderFile ? `${config.orderFile}.sqlite` : ':memory:'), config.orderFile);
   app.locals.database = database;
+  const intent = new IntentStore(database.connection);
+  const commerce = new CommerceStore(database.connection);
+  app.locals.intent = intent;
+  app.locals.commerce = commerce;
   const catalog = new SampleProvider(() => database.catalog());
   const providers = { sample: options.sampleProvider ?? (agentAvailable(config) ? new CatalogAgentProvider(config, catalog) : catalog), live: options.liveProvider ?? new LiveProvider(config) };
   const webDemoProvider = options.webDemoProvider ?? new WebDemoProvider(config);
@@ -55,6 +65,18 @@ export function createApp(options: AppOptions = {}) {
     next();
   });
   app.use(express.json({ limit: '6mb' }));
+  app.use(createIntentRouter(intent));
+  app.use(createCommerceRouter(commerce, signal => {
+    if (!intent.getState().consent) return;
+    const item = signal.savedItem;
+    const origin = item.sourceOrigin ?? 'https://needle.local';
+    const entityKey = item.offer?.id ?? item.id;
+    const tags = [...new Set([...item.tags, ...contextTags(`${item.label} ${item.summary ?? ''}`)])].filter((tag): tag is typeof intentTags[number] => (intentTags as readonly string[]).includes(tag));
+    if (!tags.length) return;
+    if (signal.type === 'group_buy_withdraw') { intent.retractAction(origin, entityKey, 'group_interest'); return; }
+    if (signal.type === 'save_remove') { intent.retractAction(origin, entityKey, 'save'); intent.retractAction(origin, entityKey, 'wishlist'); return; }
+    intent.record({ id: signal.eventId, action: signal.type === 'group_buy_interest' ? 'group_interest' : item.offer ? 'wishlist' : 'save', sourceOrigin: origin, sourceTitle: (item.sourceTitle ?? item.label).slice(0, 200), summary: (item.summary ?? item.label).slice(0, 500), tags, provenance: item.provenance, entityKey });
+  }));
 
   function checkLive(mode: string): void {
     if (mode === 'live' && liveMissing.length) throw new ApiError(503, 'LIVE_NOT_CONFIGURED', `Live discovery needs ${liveMissing.join(' and ')} in .env. You can use the prepared catalog meanwhile.`);

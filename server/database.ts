@@ -36,6 +36,8 @@ export class NeedleDatabase {
     this.importLegacyOrders(legacyOrderFile);
   }
   close(): void { this.db.close(); }
+  /** Domain stores share this connection and its lifecycle; no independent database copies. */
+  get connection(): DatabaseSync { return this.db; }
   catalog(): SampleProduct[] { return this.db.prepare('SELECT data FROM catalog ORDER BY rowid').all().map(row => parse<SampleProduct>(row)); }
 
   cacheWebOffers(item: Interpretation, offers: Offer[]): Offer[] {

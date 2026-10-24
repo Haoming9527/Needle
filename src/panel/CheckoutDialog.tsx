@@ -43,19 +43,19 @@ export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: 
   }
 
   return <dialog ref={dialog} className="sheet checkout-dialog" aria-labelledby="checkout-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    <header className="sheet-header"><h2 id="checkout-title">{order ? 'Purchase saved' : isCart ? 'Add to cart' : 'Review purchase'}</h2><button className="icon-button" aria-label="Close checkout" disabled={busy} onClick={onClose}><X size={19} /></button></header>
+    <header className="sheet-header"><h2 id="checkout-title">{order ? 'Simulated purchase saved' : isCart ? 'Add to cart' : 'Review purchase'}</h2><button className="icon-button" aria-label="Close checkout" disabled={busy} onClick={onClose}><X size={19} /></button></header>
     {order ? <div className="receipt">
-      <span className="receipt-check"><Check size={26} /></span><p className="receipt-lead">It’s in your purchase history.</p>
+      <span className="receipt-check"><Check size={26} /></span><p className="receipt-lead">Saved locally. No payment taken and no order sent.</p>
       <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} alt={order.title} /><div><h3>{order.title}</h3><p>{order.variant}{quantity > 1 ? ` · ${quantity} items` : ''}</p><strong>{formatMoney(order.price == null ? null : order.price * (order.quantity ?? quantity), order.currency)}</strong></div></div>
-      <dl className="checkout-facts"><div><dt>Reference</dt><dd>{order.id}</dd></div><div><dt>Status</dt><dd>Completed</dd></div></dl>
+      <dl className="checkout-facts"><div><dt>Reference</dt><dd>{order.id}</dd></div><div><dt>Status</dt><dd>Simulated</dd></div></dl>
       <button className="primary-button full-width" onClick={onClose}>Done</button>
     </div> : <>
       <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} alt={offer.title} /><div><h3>{offer.title}</h3><strong>{formatMoney(offer.price == null ? null : offer.price * quantity, offer.currency)}</strong>{quantity > 1 && <p>{quantity} × {formatMoney(offer.price, offer.currency)}</p>}</div></div>
       {offer.variants.length > 0 && <label className="field-label">Variant<select value={variant} disabled={!!cartItemId || busy} onChange={event => setVariant(event.target.value)}><option value="" disabled>Choose a variant</option>{offer.variants.map(option => <option key={option} value={option}>{option}</option>)}</select></label>}
-      {!isCart && <dl className="checkout-facts"><div><dt>Merchant</dt><dd>Coupang</dd></div><div><dt>Shipping</dt><dd>{offer.shipping ?? 'Unknown'}</dd></div><div><dt>Availability</dt><dd>{offer.availability ?? 'Unknown'}</dd></div><div><dt>Returns</dt><dd>{offer.returns ?? 'Unknown'}</dd></div></dl>}
+      {!isCart && <dl className="checkout-facts"><div><dt>Merchant</dt><dd>{offer.dataOrigin === 'sample' ? 'Demo storefront' : 'Coupang listing'}</dd></div><div><dt>Shipping</dt><dd>{offer.shipping ?? 'Unknown'}</dd></div><div><dt>Availability</dt><dd>{offer.availability ?? 'Unknown'}</dd></div><div><dt>Returns</dt><dd>{offer.returns ?? 'Unknown'}</dd></div></dl>}
       {offer.sourceUrl && <a className="source-link" href={offer.sourceUrl} target="_blank" rel="noreferrer">View on Coupang <ExternalLink size={13} /></a>}
       {error && <p className="inline-error" role="alert">{error}</p>}
-      <button className="primary-button full-width confirm-purchase" onClick={() => void confirm()} disabled={busy || (offer.variants.length > 0 && !variant)}>{busy ? <><span className="button-spinner" /> Saving…</> : isCart ? 'Add to cart' : 'Confirm purchase'}</button>
+      <button className="primary-button full-width confirm-purchase" onClick={() => void confirm()} disabled={busy || (offer.variants.length > 0 && !variant)}>{busy ? <><span className="button-spinner" /> Saving…</> : isCart ? 'Add to cart' : 'Confirm simulated purchase'}</button>
     </>}
   </dialog>;
 }
