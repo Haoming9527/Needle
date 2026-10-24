@@ -75,6 +75,38 @@ describe('measured attention on controlled demo sources', () => {
     // Ordinary observation input cannot smuggle trusted measured-source metadata.
     await api.post('/intent/observations').send({ ...body, id: 'spoof', capture: { method: 'measured_cursor' } }).expect(400);
   });
+  it('keeps measured and replay weak evidence in separate cohorts while sharing explicit shopping actions', async () => {
+    const api = setup(); await enable(api);
+    await api.post('/intent/attention').send(capture()).expect(200);
+    await api.post('/intent/attention').send(capture('commute-guide')).expect(200);
+    const replay = { action: 'dwell', sourceTitle: 'Replay source', summary: 'Prepared replay context', provenance: 'demo_fixture' };
+    await api.post('/intent/observations').send({ ...replay, id: 'replay-recipe', sourceOrigin: 'https://recipes.example', tags: ['meal-prep'] }).expect(200);
+    await api.post('/intent/observations').send({ ...replay, id: 'replay-commute', sourceOrigin: 'https://cycling.example', tags: ['cycle-commute'] }).expect(200);
+    let hypothesis = (await api.get('/intent').expect(200)).body.hypotheses[0];
+    expect(hypothesis).toMatchObject({ evidencePoints: 4, readiness: 'exploring' });
+    expect(hypothesis.evidenceIds).toHaveLength(2);
+    const purchase = { id: 'saved-product', action: 'wishlist', sourceOrigin: 'https://needle.local', sourceTitle: 'Saved product', summary: 'Portable lunch container', tags: ['meal-prep', 'portable'], provenance: 'observed', entityKey: 'lunch-box' };
+    await api.post('/intent/observations').send(purchase).expect(200);
+    hypothesis = (await api.get('/intent').expect(200)).body.hypotheses[0];
+    expect(hypothesis).toMatchObject({ evidencePoints: 8, readiness: 'considering' });
+    await api.post('/intent/observations').send({ ...purchase, id: 'cart-product', action: 'cart' }).expect(200);
+    hypothesis = (await api.get('/intent').expect(200)).body.hypotheses[0];
+    expect(hypothesis).toMatchObject({ evidencePoints: 9, readiness: 'ready_to_review' });
+    expect(hypothesis.connection.observations).toHaveLength(2);
+  });
+  it('updates the latest strongest measured event without changing the canonical evidence identity', async () => {
+    const api = setup(); await enable(api); const original = capture();
+    await api.post('/intent/attention').send(original).expect(200);
+    const revisit = { ...original, id: randomUUID(), action: 'revisit', measurement: { dwellMs: 3000, visitOrdinal: 2 } };
+    await api.post('/intent/attention').send(revisit).expect(200);
+    const latest = { ...revisit, id: randomUUID(), pageInstanceId: randomUUID(), measurement: { dwellMs: 4500, visitOrdinal: 3 }, capturedAt: new Date(Date.now() + 1).toISOString() };
+    const state = (await api.post('/intent/attention').send(latest).expect(200)).body;
+    expect(state.observations).toHaveLength(1);
+    expect(state.observations[0]).toMatchObject({ id: original.id, action: 'revisit', summary: 'Returned to a meal-preparation guide.', capture: { pageInstanceId: latest.pageInstanceId, dwellMs: 4500, visitOrdinal: 3, capturedAt: latest.capturedAt } });
+    // A later weaker dwell must not replace the stronger revisit's metadata.
+    const weaker = (await api.post('/intent/attention').send({ ...original, id: randomUUID(), measurement: { dwellMs: 9000, visitOrdinal: 4 } }).expect(200)).body;
+    expect(weaker.observations[0].capture).toEqual(state.observations[0].capture);
+  });
   it('only recognizes registered pages on the allowed development origins', () => {
     expect(attentionSourceForUrl('http://127.0.0.1:5173/recipe-demo.html?view=reading')?.id).toBe('recipe-guide');
     for (const url of ['https://localhost:5173/recipe-demo.html', 'http://localhost:5173/recipe-demo.html/extra', 'http://localhost:5173/not-demo.html', 'http://user:pass@localhost:5173/recipe-demo.html', 'http://evil.example/recipe-demo.html']) expect(attentionSourceForUrl(url)).toBeUndefined();

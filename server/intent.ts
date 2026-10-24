@@ -137,11 +137,11 @@ export class IntentStore {
     const events = this.db.prepare('SELECT data FROM intent_events WHERE semantic_key=? ORDER BY rowid').all(key).map(value => parse<IntentObservation>(value.data));
     if (!events.length) { this.db.prepare('DELETE FROM intent_observations WHERE semantic_key=?').run(key); return; }
     const first = events[0]!;
-    const strongest = events.reduce((best, event) => strength[event.action] > strength[best.action] ? event : best, first);
+    const strongest = events.reduce((best, event) => strength[event.action] >= strength[best.action] ? event : best, first);
     const next: IntentObservation = {
       ...first, id: previous?.id ?? first.id, createdAt: previous?.createdAt ?? first.createdAt,
       action: strongest.action,
-      ...(strongest.capture ? { capture: strongest.capture, sourceOrigin: strongest.sourceOrigin } : {}),
+      ...(strongest.capture ? { capture: strongest.capture, sourceOrigin: strongest.sourceOrigin, sourceTitle: strongest.sourceTitle, summary: strongest.summary } : {}),
       collectionId: [...events].reverse().find(event => event.collectionId)?.collectionId,
       tags: [...new Set(events.flatMap(event => event.tags))],
       provenance: events.some(event => event.provenance === 'demo_fixture') ? 'demo_fixture' : 'observed',
@@ -206,7 +206,11 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
     const first = external.find(a => a.tags.includes(candidate.tags[0]!) && external.some(b => independent(a, b) && b.tags.includes(candidate.tags[1]!)));
     const second = first && external.find(b => independent(first, b) && b.tags.includes(candidate.tags[1]!));
     if (!first || !second) return [];
-    const ordered = [first, second, ...relevant.filter(value => value !== first && value !== second)];
+    // Replays and measured browsing describe alternative demonstrations of the same
+    // weak context; never add their attention points together. Explicit commerce
+    // actions remain shared evidence and can still change purchase readiness.
+    const cohort = relevant.filter(value => !weak(value) || !!value.capture === !!first.capture);
+    const ordered = [first, second, ...cohort.filter(value => value !== first && value !== second)];
     const counted: IntentObservation[] = [];
     const weakSites = new Set<string>();
     for (const value of ordered) {
