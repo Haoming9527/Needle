@@ -49,8 +49,8 @@ export function mountAttentionCapture({ onStatus }: { onStatus: (status: Attenti
       document, targetId: source.targetId, initialVisitOrdinal: visits,
       onTracking: tracking => {
         if (!sending && !pending) status(tracking ? 'tracking' : 'ready', tracking
-          ? 'Measuring a pause on this reading region…'
-          : 'Ready. Pause your cursor on the outlined reading region for two seconds.');
+          ? 'Measuring time in this reading region…'
+          : 'Ready. Keep your cursor within the outlined reading region for two seconds.');
       },
       onObservation: measurement => {
         if (!enabled || pending || sending || stopped || document.visibilityState !== 'visible') return;
@@ -74,7 +74,7 @@ export function mountAttentionCapture({ onStatus }: { onStatus: (status: Attenti
       status('paused', 'Cursor attention is paused. Enable it to measure this demo reading region.');
     } else if (!wasEnabled || !stopCollector) {
       start();
-      if (!pending) status('ready', 'Ready. Pause your cursor on the outlined reading region for two seconds.');
+      if (!pending) status('ready', 'Ready. Keep your cursor within the outlined reading region for two seconds.');
     }
   };
   async function refresh() {
@@ -102,14 +102,14 @@ export function mountAttentionCapture({ onStatus }: { onStatus: (status: Attenti
       if (stopped || controller.signal.aborted || current !== revision) return;
       pending = undefined;
       applyState(state);
-      if (enabled) status('recorded', `${capture.action === 'revisit' ? 'Return visit' : 'Cursor pause'} recorded: ${(capture.measurement.dwellMs / 1000).toFixed(1)} seconds. ${count} of 2 demo sources connected.`);
+      if (enabled) status('recorded', `${capture.action === 'revisit' ? 'Return visit' : 'Reading-region dwell'} recorded: ${(capture.measurement.dwellMs / 1000).toFixed(1)} seconds. ${count} of 2 demo sources connected.`);
     } catch (error) {
       if (stopped || controller.signal.aborted || current !== revision) return;
       stop();
       if (error instanceof RequestError && ['ATTENTION_CONSENT_REQUIRED', 'INTENT_CONSENT_REQUIRED'].includes(error.code)) {
         pending = undefined; enabled = false; void refresh();
       } else {
-        status('error', 'This cursor pause could not be saved. Retry recording to send the same observation again.');
+        status('error', 'This reading-region dwell could not be saved. Retry recording to send the same observation again.');
       }
     } finally { sending = false; }
   }

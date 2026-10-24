@@ -7,7 +7,7 @@ A local Chrome extension with a compact right-click shopping popup, a Vercel AI 
 
 ## Connected discovery demo (v0.7)
 
-Open **Discover** for the primary low-intent workflow: browse a recipe article, then a cycling-to-work article. Both previews and attention signals are explicitly simulated. Needle explains the observed clues, possible connection and uncertainty, then asks you to confirm or correct the need. Only after your feedback does one relevant product appear inline. The rule-based context score and product search are separate; no background cursor tracking is represented.
+Open **Discover** for the primary low-intent workflow: browse a recipe article, then a cycling-to-work article. Two controlled local reading pages measure actual cursor time within marked regions; their articles and topic labels are prepared demo data. Needle explains the observed clues, possible connection and uncertainty, then asks you to confirm or correct the need. Only after your feedback does one relevant product appear inline. The rule-based context score and product search are separate; ordinary-site background tracking is not implemented. Existing Save / Find capture and search relevance remain unchanged. A labelled synthetic replay is available as a fallback.
 
 **Saved** supports durable inspiration, product wishlists, named collections, and conditional group-buy simulations. Each group contains two labelled synthetic participants; joining expresses a price condition and never creates an order. **Find**, **Cart**, and **History** retain the existing flow, with visibly simulated checkout.
 
@@ -33,6 +33,8 @@ npm run dev
 - [Shopping panel](http://127.0.0.1:5173/panel.html)
 - [X-style video interaction fixture](http://127.0.0.1:5173/x-demo.html)
 - [Editorial article](http://127.0.0.1:5173/demo.html)
+- [Measured recipe source](http://127.0.0.1:5173/recipe-demo.html)
+- [Measured commute source](http://127.0.0.1:5173/commute-demo.html)
 
 The API binds to `127.0.0.1:4318`; Vite binds to `127.0.0.1:5173`. Keep them running. For the API alone, use `npm start`.
 

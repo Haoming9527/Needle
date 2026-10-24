@@ -2,6 +2,15 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## v0.7 measured attention integration
+
+- Added separately opted-in measurement on two registered local reading regions. Actual pointer dwell is captured; article context and topic tags remain prepared data. Existing extension Save / Find, crop, clarification and search relevance were not changed in this pass.
+- **210 tests in 23 files passed**, covering ingestion validation, source/capture provenance, separate consent, per-source caps, mixed replay/measured evidence, collector timing and cleanup, and client retry/stale-response handling. TypeScript, production build and extension package checks passed.
+- Browser rehearsal used trusted pointer input in the real page regions: recipe dwell measured 2,002ms and produced no hypothesis; commute dwell added a tentative connection. Both observations retained the actual loopback origin, region, session/page IDs and measurement metadata. Navigation did not inject fixture observations.
+- Confirming a KRW 30,000 limit returned the KRW 24,000 lunch container; correcting to eating at home returned the KRW 21,000 storage set and retained the budget. Refreshing recorded context left the product stable and the persisted discovery-session count unchanged at 5.
+- Desktop and 390px visual inspection passed; mobile document width and scroll width were both 390px. Screenshots: `.local/screenshots/measured-commute-source.png`, `measured-intent-connection.png`, `measured-intent-mobile.png`.
+- This demonstrates two prepared sources on one local origin. It does not verify arbitrary cross-site collection, stationary pointer attention, installed Chrome behavior, authenticated provider calls, or seller sharing. See `ATTENTION_DATA.md` for the producer contract and boundaries.
+
 ## v0.7 low-intent workflow refinement
 
 - Replaced dashboard replay buttons with recipe and commuting article previews, then an explicit observed/inferred/uncertain connection and a confirmation question. Signals remain labelled simulation inputs.
