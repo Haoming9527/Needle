@@ -1,10 +1,13 @@
 import type { CapturedSelection, SearchResponse, Selection } from '../../shared/types';
 import { cropFocus, mediaCrop, sameGeometry, type CropBox, type MediaGeometry } from './geometry';
+import { createShoppingGate, type ShoppingGate } from './preferences';
 
 const API = 'http://127.0.0.1:4318';
 const active = new Map<number, { id: string; controller: AbortController }>();
 const voiceActive = new Map<number, { id: string; controller: AbortController }>();
 const cacheWrites = new Map<number, Promise<void>>();
+let shopping: ShoppingGate;
+let disabledGeneration = 0;
 const cacheKey = (tabId: number) => `needle.overlay.${tabId}`;
 interface Prepared { geometry: MediaGeometry; text?: string; context?: string }
 interface Cached { requestId: string; pageUrl: string; captured: CapturedSelection; result: SearchResponse }
@@ -26,7 +29,8 @@ function senderTab(sender: chrome.runtime.MessageSender): chrome.tabs.Tab | null
   return sender.tab;
 }
 async function request<T>(path: '/discover' | '/clarify' | '/cart' | '/voice/question' | '/voice/transcribe', body: unknown, signal?: AbortSignal): Promise<T> {
-  const requestSignal = signal ?? AbortSignal.timeout(10_000);
+  shopping.assertEnabled();
+  const requestSignal = AbortSignal.any([signal ?? AbortSignal.timeout(10_000), shopping.signal()]);
   let response: Response;
   try { response = await fetch(`${API}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: requestSignal }); }
   catch {
@@ -35,6 +39,7 @@ async function request<T>(path: '/discover' | '/clarify' | '/cart' | '/voice/que
     throw new Error('Start Needle with npm run dev, then right-click the object again.');
   }
   const value = await response.json();
+  if (requestSignal.aborted) throw new Error('Search cancelled.');
   if (!response.ok) throw new Error(value.error?.message || 'The search could not finish. Right-click to retry.');
   return value as T;
 }
@@ -89,6 +94,10 @@ async function croppedScreenshot(tab: chrome.tabs.Tab, box: CropBox, focus: NonN
   } finally { bitmap.close(); }
 }
 async function withSearch<T>(tab: chrome.tabs.Tab, requestId: string, work: (signal: AbortSignal, assertCurrent: () => void) => Promise<T>): Promise<T> {
+  const generation = disabledGeneration;
+  await shopping.ready;
+  shopping.assertEnabled();
+  if (generation !== disabledGeneration) throw new Error('Search cancelled.');
   const tabId = tab.id!;
   active.get(tabId)?.controller.abort();
   const controller = new AbortController();
@@ -100,6 +109,7 @@ async function withSearch<T>(tab: chrome.tabs.Tab, requestId: string, work: (sig
   chrome.tabs.onUpdated.addListener(onUpdated);
   try {
     const assertCurrent = () => {
+      shopping.assertEnabled();
       if (controller.signal.aborted || active.get(tabId)?.controller !== controller) throw new Error('Search cancelled.');
     };
     return await work(controller.signal, assertCurrent);
@@ -170,6 +180,10 @@ async function clarify(tab: chrome.tabs.Tab, requestId: string, answer: string):
   });
 }
 async function voiceRequest(tab: chrome.tabs.Tab, requestId: string, audioDataUrl?: string): Promise<{ audioDataUrl?: string; text?: string }> {
+  const generation = disabledGeneration;
+  await shopping.ready;
+  shopping.assertEnabled();
+  if (generation !== disabledGeneration) throw new Error('Voice request cancelled.');
   const tabId = tab.id!;
   voiceActive.get(tabId)?.controller.abort();
   const controller = new AbortController();
@@ -177,7 +191,7 @@ async function voiceRequest(tab: chrome.tabs.Tab, requestId: string, audioDataUr
   const timer = setTimeout(() => controller.abort(), 30_000);
   const onUpdated = (id: number, change: { url?: string; status?: string }) => { if (id === tabId && (change.url || change.status === 'loading')) controller.abort(); };
   chrome.tabs.onUpdated.addListener(onUpdated);
-  const assertCurrent = () => { if (controller.signal.aborted || voiceActive.get(tabId)?.controller !== controller) throw new Error('Voice request cancelled.'); };
+  const assertCurrent = () => { shopping.assertEnabled(); if (controller.signal.aborted || voiceActive.get(tabId)?.controller !== controller) throw new Error('Voice request cancelled.'); };
   try {
     const value = await cached(tab, requestId);
     assertCurrent();
@@ -194,6 +208,13 @@ async function voiceRequest(tab: chrome.tabs.Tab, requestId: string, audioDataUr
   }
 }
 export function installOverlayMessages(): void {
+  shopping = createShoppingGate(enabled => {
+    if (enabled) return;
+    disabledGeneration++;
+    for (const job of active.values()) job.controller.abort();
+    for (const job of voiceActive.values()) job.controller.abort();
+  });
+  void shopping.ready.catch(() => {});
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     const tab = senderTab(sender);
     if (!tab || !message || typeof message.requestId !== 'string' || !/^[a-zA-Z0-9-]{8,80}$/.test(message.requestId)) return;
@@ -236,7 +257,12 @@ export function installOverlayMessages(): void {
     // Preserve Chrome's user activation before asynchronous storage or API work.
     const open = message.type === 'NEEDLE_OVERLAY_BUY' ? chrome.sidePanel.open({ tabId: tab.id! }) : Promise.resolve();
     void open.then(async () => {
+      await shopping.ready;
+      shopping.assertEnabled();
+      const enabledSignal = shopping.signal();
       const value = await cached(tab, message.requestId);
+      shopping.assertEnabled();
+      if (enabledSignal.aborted) throw new Error('Selection cancelled.');
       const offer = value.result.offers.find(item => item.id === message.offerId);
       if (!offer) throw new Error('Choose an available result.');
       if (message.type === 'NEEDLE_OVERLAY_CART') return request('/cart', { sessionId: value.result.sessionId, offerId: offer.id, variant: message.variant });

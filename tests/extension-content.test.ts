@@ -63,6 +63,7 @@ let windowEvents: FakeElement;
 let hits: FakeElement[];
 let runtimeEvents: Set<(...args: any[]) => unknown>;
 let runtime: any;
+let storage: any;
 let finishDiscovery: (value: unknown) => void;
 let sendMessage: ReturnType<typeof vi.fn>;
 function click(target: FakeElement, extra: Record<string, unknown> = {}) {
@@ -94,7 +95,16 @@ beforeEach(() => {
   vi.stubGlobal('innerWidth', 1280); vi.stubGlobal('innerHeight', 720); vi.stubGlobal('scrollX', 0); vi.stubGlobal('scrollY', 0);
   vi.stubGlobal('getComputedStyle', (element: FakeElement) => ({ backgroundImage: element.backgroundImage }));
   vi.stubGlobal('requestAnimationFrame', (fn: () => void) => { queueMicrotask(fn); return 1; });
-  vi.stubGlobal('chrome', { runtime });
+  const storageListeners = new Set<(...args: any[]) => void>();
+  storage = {
+    local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) },
+    onChanged: {
+      addListener: (listener: (...args: any[]) => void) => storageListeners.add(listener),
+      removeListener: (listener: (...args: any[]) => void) => storageListeners.delete(listener),
+      emit: (...args: any[]) => [...storageListeners].forEach(listener => listener(...args)),
+    },
+  };
+  vi.stubGlobal('chrome', { runtime, storage });
 });
 afterEach(() => {
   const state = globalThis as typeof globalThis & { __needleContentDispose?: () => void };
@@ -135,6 +145,30 @@ describe('right-click target selection', () => {
 });
 
 describe('content-script action toolbar', () => {
+  it('does not briefly intercept right-click before the saved OFF setting loads', async () => {
+    let finish!: (value: unknown) => void;
+    storage.local.get.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    await import('../src/extension/content');
+    const pending = click(new FakeElement('div')); windowEvents.emit('contextmenu', pending);
+    expect(pending.preventDefault).not.toHaveBeenCalled(); expect(root.children).toHaveLength(0);
+    finish({ 'needle.enabled': false }); await Promise.resolve();
+    const disabled = click(new FakeElement('div')); windowEvents.emit('contextmenu', disabled);
+    expect(disabled.preventDefault).not.toHaveBeenCalled(); expect(sendMessage).not.toHaveBeenCalled();
+    storage.onChanged.emit({ 'needle.enabled': { newValue: true } }, 'local');
+    const enabled = click(new FakeElement('div')); windowEvents.emit('contextmenu', enabled);
+    expect(enabled.preventDefault).toHaveBeenCalled(); expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+  it('dismisses the popup and cursor glow, and ignores late discovery when switched off', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    const marker = targetMarker();
+    storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    expect(marker.hidden).toBe(true); expect(root.children).toHaveLength(0);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
+    finishDiscovery({ result: searchResult() }); await Promise.resolve();
+    expect(root.children).toHaveLength(0);
+    const event = click(new FakeElement('div')); windowEvents.emit('contextmenu', event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  });
   it('shows exactly Buy, Add to cart, and × immediately while discovery is pending', async () => {
     await import('../src/extension/content');
     const event = click(new FakeElement('div')); windowEvents.emit('contextmenu', event);

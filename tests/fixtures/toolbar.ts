@@ -87,6 +87,7 @@ async function sendMessage(message: Message): Promise<unknown> {
   return { error: 'Unsupported fixture message.' };
 }
 
+const { preferenceStorage } = await import('./preference-storage');
 const existingChrome = (globalThis as { chrome?: typeof chrome }).chrome;
 if (existingChrome?.runtime?.id) {
   report('A real extension runtime exists here. Fixture bridge was not installed.');
@@ -102,6 +103,7 @@ if (existingChrome?.runtime?.id) {
   };
   Object.defineProperty(globalThis, 'chrome', { configurable: true, value: {
     ...existingChrome,
+    storage: preferenceStorage(),
     runtime: {
       id: runtimeId, getManifest: () => ({ version: '0.4.0-fixture' }), sendMessage,
       onMessage: { addListener: (listener: Listener) => listeners.add(listener), removeListener: (listener: Listener) => listeners.delete(listener) },
@@ -125,4 +127,4 @@ const canvas = document.getElementById('canvas-target') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d');
 const lamp = new Image();
 lamp.onload = () => { if (ctx) { ctx.fillStyle = '#edf2f8'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.drawImage(lamp, 0, 0, canvas.width, canvas.height); } };
-lamp.src = '/assets/lamp.svg';
+lamp.src = '/assets/photos/lamp.png';

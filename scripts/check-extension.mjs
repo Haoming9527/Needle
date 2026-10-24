@@ -2,7 +2,7 @@ import { readFile, access, readdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 const root = resolve('dist/extension');
 const manifest = JSON.parse(await readFile(join(root, 'manifest.json'), 'utf8'));
-for (const file of [manifest.background.service_worker, manifest.side_panel.default_path, 'demo.html', 'x-demo.html', ...(manifest.content_scripts ?? []).flatMap(script => script.js), ...Object.values(manifest.icons)]) await access(join(root, file));
+for (const file of [manifest.background.service_worker, manifest.side_panel.default_path, ...(manifest.content_scripts ?? []).flatMap(script => script.js), ...Object.values(manifest.icons)]) await access(join(root, file));
 if (manifest.manifest_version !== 3) throw new Error('Manifest V3 is required.');
 if (manifest.permissions.includes('<all_urls>')) throw new Error('URL permission must be in host_permissions.');
 // Chrome requires <all_urls> for captureVisibleTab initiated by a page gesture.
@@ -22,4 +22,4 @@ async function inspect(dir) {
   }
 }
 await inspect(root);
-console.log('Extension package verified: manifest, worker, content script, panel, inspiration pages, icons, and bundled scripts.');
+console.log('Extension package verified: manifest, worker, content script, panel, icons, and bundled scripts.');

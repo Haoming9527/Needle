@@ -29,6 +29,7 @@ export class NeedleDatabase {
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS cart (id TEXT PRIMARY KEY, item_key TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS orders (confirmation_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS cleared_order_confirmations (confirmation_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS session_age ON sessions(created_at);`);
     const insert = this.db.prepare('INSERT INTO catalog(id,data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data');
@@ -107,19 +108,35 @@ export class NeedleDatabase {
     return this.cart();
   }
   removeCart(id: string): CartItem[] { this.db.prepare('DELETE FROM cart WHERE id = ?').run(id); return this.cart(); }
+  clearCart(): CartItem[] { this.db.prepare('DELETE FROM cart').run(); return []; }
   quantity(id: string, quantity: number): CartItem[] {
     const item = this.cartItem(id); item.quantity = quantity;
     this.db.prepare('UPDATE cart SET data = ? WHERE id = ?').run(JSON.stringify(item), id);
     return this.cart();
   }
   history(): DemoOrder[] { return this.db.prepare('SELECT data FROM orders ORDER BY created_at DESC, rowid DESC').all().map(row => parse<DemoOrder>(row)); }
+  clearHistory(): DemoOrder[] {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Keep only the idempotency guard. A retry of an old confirmation must not
+      // recreate a deleted receipt or remove another item from the cart.
+      this.db.exec(`INSERT OR IGNORE INTO cleared_order_confirmations(confirmation_id,fingerprint)
+        SELECT confirmation_id,fingerprint FROM orders;
+        DELETE FROM orders;`);
+      this.db.exec('COMMIT');
+      return [];
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   previous(request: DemoOrderRequest): DemoOrder | null {
-    const row = this.db.prepare('SELECT fingerprint,data FROM orders WHERE confirmation_id = ?').get(request.confirmationId);
+    const receipt = this.db.prepare('SELECT fingerprint,data FROM orders WHERE confirmation_id = ?').get(request.confirmationId);
+    const cleared = receipt ? undefined : this.db.prepare('SELECT fingerprint FROM cleared_order_confirmations WHERE confirmation_id = ?').get(request.confirmationId);
+    const row = receipt ?? cleared;
     if (!row) return null;
     // Legacy receipts used only these three fields for their confirmation fingerprint.
     const oldFingerprint = createHash('sha256').update(JSON.stringify([request.sessionId, request.offerId, request.variant ?? null])).digest('hex');
     const legacyRequest = !request.cartItemId && (request.quantity === undefined || request.quantity === 1);
     if (row.fingerprint !== fingerprint(request) && !(legacyRequest && row.fingerprint === oldFingerprint)) throw new ApiError(409, 'CONFIRMATION_CONFLICT', 'This confirmation was already used for a different selection. Start a new confirmation.');
+    if (cleared) throw new ApiError(410, 'ORDER_CLEARED', 'This purchase was cleared from history. Start a new confirmation to purchase again.');
     return parse<DemoOrder>(row);
   }
   purchase(request: DemoOrderRequest): { order: DemoOrder; created: boolean } {

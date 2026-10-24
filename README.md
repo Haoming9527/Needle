@@ -4,9 +4,7 @@
 
 A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. Needle searches across stores, using 18 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
 
-The editorial article at `demo.html` uses realistic generated photography: a sunlit workspace, headphones, backpack, and task lamp. Right-click a photograph to begin shopping. Loading includes an animated scan, actual elapsed time, rotating tips, and an always-available cancel control. No percentage or completed search stage is fabricated.
-
-Seven generated PNG assets live in `public/assets/photos/`. Full built-in image-generation prompts are recorded in `docs/PHOTO-PROMPTS-products.md`, `docs/PHOTO-PROMPTS-scenes.md`, and `docs/PHOTO-PROMPTS-audio.md`. These are illustrative category images, not verified photographs of the named catalog models.
+The extension uses six generated category photos in `public/assets/photos/`. These are illustrative images, not verified photographs of the named catalog models. Searching shows a small red glow at the selected point, elapsed time, and an available cancel control.
 
 ## Run locally
 
@@ -20,8 +18,6 @@ npm run dev
 ```
 
 - [Shopping panel](http://127.0.0.1:5173/panel.html)
-- [X-style video interaction fixture](http://127.0.0.1:5173/x-demo.html)
-- [Editorial article](http://127.0.0.1:5173/demo.html)
 
 The API binds to `127.0.0.1:4318`; Vite binds to `127.0.0.1:5173`. Keep them running. For the API alone, use `npm start`.
 
@@ -59,7 +55,7 @@ With a key, the agent interprets the selected image, calls a SQLite catalog-sear
 
 Needle searches the wider web directly through Exa for real product references and adds those products to the local demo catalog. There is no preferred retailer or domain restriction. This reuses the identified object within the same 45-second request. Missing credentials or failed services produce a recovery message.
 
-Web-derived demo items show their source website and retain the original reference in **Product details → Original product source**. A verified source price keeps its currency. Otherwise, the agent assigns an illustrative price, marked in Product details. SQLite saves the product, price, and provenance so later searches use the same record. The separate **Web search** mode searches stores directly and keeps unverified prices unknown; it never substitutes demo records.
+Web-derived demo items show their source website and retain the original reference in **Product details → Original product source**. A verified source price keeps its currency. Otherwise, the agent assigns an illustrative price, marked in Product details. SQLite saves the product, price, and provenance so later searches use the same record. The interface automatically uses catalog search with web fallback; there is no mode picker or connection badge. Direct web retrieval remains available to API clients using `mode: "live"`, with unknown prices kept unknown.
 
 ## Load or update the extension
 
@@ -69,14 +65,16 @@ npm run build
 
 1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
 2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.7.3**, then refresh the webpage to remove the previous content script.
+3. Check that Chrome shows **version 0.8.0**, then refresh the webpage to remove the previous content script.
 4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
 5. Needle captures a small region around the cursor, marks the exact point for vision, and automatically searches. A red glow stays at the clicked point while searching and disappears when the search ends. It hides during capture and respects reduced motion. Its two shopping actions become available when a result and any required variant are ready. If the agent asks which object you mean, type your answer directly in the popup and press Enter or Search.
 6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
 
 Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. The popup stays anchored through loading and results. Clarification replies in either the popup or panel reuse the original frame; manual crop/description controls remain available.
 
-If Chrome still shows only its normal menu, verify version 0.7.3, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+Use the panel's **On/Off switch** to enable or disable right-click shopping. Off restores the normal browser/site context menu and closes an active shopping popup. The preference is saved across tabs and browser restarts. Open Needle from Chrome's extension toolbar to turn it back on. Settings now contains just the budget and currency preferences.
+
+If Chrome still shows only its normal menu, verify version 0.8.0, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
 
 When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
 
@@ -98,7 +96,9 @@ The popup is visible immediately, then briefly hidden during capture. Only a reg
 
 `.local/needle.sqlite` is created and seeded automatically. It stores seeded and web-derived catalog records, search interpretations for one hour, cart items, and purchase receipts. Raw image captures are excluded. Selected source-page metadata is retained with its search; general browsing history is not collected.
 
-The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Settings explains the dataset and collapsed evidence retains provenance. Edit `server/catalog.ts` to change fixtures; startup upserts the seeded records.
+The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Collapsed Product details retains provenance. Edit `server/catalog.ts` to change fixtures; startup upserts the seeded records.
+
+**Clear cart** removes every saved cart entry; **Clear history** removes the local purchase receipts. Each button affects only its own collection. Catalog products and API credentials remain available. Clearing history keeps only confirmation identifiers and request hashes to reject stale purchase retries, without retaining deleted receipt payloads.
 
 The agent uses AI SDK 7 `ToolLoopAgent` with a bounded read-only catalog-search tool. It cannot place orders or change the cart. Catalog output IDs must come from tool evidence. The web fallback validates product names against retrieved excerpts, keeps original source links, and saves any illustrative price before use. Checkout is a separate explicit user action. Repeated confirmation IDs return one receipt. Cart checkout and removal happen in one SQLite transaction.
 
@@ -115,9 +115,11 @@ Existing `.local/demo-orders.json` receipts are imported once without changing t
 | `POST /voice/question` | Speak the pending question from its saved session |
 | `POST /voice/transcribe` | Transcribe a short recording into an editable reply |
 | `GET /cart`, `POST /cart` | Read cart or add a reviewed offer |
+| `POST /cart/clear` | Empty the cart; strict empty JSON body `{}` |
 | `POST /cart/:id/quantity` | Update quantity |
 | `POST /cart/:id/remove` | Remove an entry |
 | `GET /orders`, `POST /orders` | Read history or confirm a purchase |
+| `POST /orders/clear` | Clear purchase history; strict empty JSON body `{}` |
 | `POST /demo-orders` | Backwards-compatible purchase endpoint |
 
 ## Checks
@@ -127,7 +129,7 @@ npm test
 npm run build
 ```
 
-See [verification](docs/VERIFICATION.md), [requirements](docs/REQUIREMENTS.md), and the [presentation guide](docs/DEMO.md).
+See [verification](docs/VERIFICATION.md) and [requirements](docs/REQUIREMENTS.md). `tests/fixtures/` contains development-only previews of actual extension components; these are excluded from the extension build.
 
 Optional direct web retrieval uses Exa and source-evidence checks; run `npm run check:coverage` before presenting it. It never silently switches to fixtures. Inventory verification and real merchant checkout are outside this demo.
 

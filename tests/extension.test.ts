@@ -15,10 +15,13 @@ beforeEach(async () => {
   values = {};
   api = {
     runtime: { id: 'a'.repeat(32), onInstalled: event(), onMessage: event() },
-    contextMenus: { onClicked: event(), removeAll: vi.fn(async () => {}), create: vi.fn() },
+    contextMenus: { onClicked: event(), removeAll: vi.fn(async () => {}), create: vi.fn(), update: vi.fn(async () => {}) },
     action: { onClicked: event() },
     sidePanel: { open: vi.fn(async () => {}) },
-    storage: { session: { set: vi.fn(async (value: Record<string, CapturedSelection>) => Object.assign(values, value)) } },
+    storage: {
+      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) }, onChanged: event(),
+      session: { set: vi.fn(async (value: Record<string, CapturedSelection>) => Object.assign(values, value)), remove: vi.fn(async (key: string) => { delete values[key]; }) },
+    },
     scripting: { executeScript: vi.fn(async () => [{ result: null }]) },
     tabs: { query: vi.fn(async () => [tab]), captureVisibleTab: vi.fn(async () => 'data:image/jpeg;base64,AA=='), onActivated: event(), onUpdated: event() },
   };
@@ -28,6 +31,26 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('extension context capture', () => {
+  it('keeps the toolbar available without capturing when shopping is off', async () => {
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    api.action.onClicked.emit(tab);
+    expect(api.sidePanel.open).toHaveBeenCalledWith({ tabId: tab.id });
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(api.tabs.captureVisibleTab).not.toHaveBeenCalled();
+    expect(api.storage.session.set).not.toHaveBeenCalled();
+    expect(api.contextMenus.update).toHaveBeenCalledWith('needle-find', { enabled: false });
+  });
+  it('drops a pending native capture if shopping is switched off and back on', async () => {
+    let finish!: (value: string) => void;
+    api.tabs.captureVisibleTab.mockImplementation(() => new Promise<string>(resolve => { finish = resolve; }));
+    api.contextMenus.onClicked.emit({ menuItemId: 'needle-find' }, tab);
+    await vi.waitFor(() => expect(api.tabs.captureVisibleTab).toHaveBeenCalled());
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: true } }, 'local');
+    finish('data:image/jpeg;base64,AA==');
+    await vi.waitFor(() => expect(api.tabs.onActivated.listeners.size).toBe(0));
+    expect(api.storage.session.set).not.toHaveBeenCalled();
+  });
   it('registers a context menu only on ordinary webpages', async () => {
     api.runtime.onInstalled.emit();
     await vi.waitFor(() => expect(api.contextMenus.create).toHaveBeenCalled());

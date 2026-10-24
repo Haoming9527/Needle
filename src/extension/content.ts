@@ -3,6 +3,7 @@ import { offerSource } from '../../shared/offer-source';
 import { mediaCrop } from './geometry';
 import { targetAt, targetGeometry, targetText, type ShoppingTarget } from './target';
 import { createVoiceSession, type VoiceSession, type VoiceState } from '../voice/voice-client';
+import { createShoppingGate } from './preferences';
 
 interface Popup {
   id: string; target: ShoppingTarget; pointerX: number; pointerY: number; host: HTMLDivElement; details: HTMLDivElement;
@@ -22,6 +23,8 @@ const contentGlobal = globalThis as ContentGlobal;
 contentGlobal.__needleContentDispose?.();
 const extensionId = chrome.runtime.id;
 let current: Popup | null = null;
+const shopping = createShoppingGate(enabled => { if (!enabled) dismiss(); });
+void shopping.ready.catch(() => { dismiss(); });
 const isX = /(^|\.)(x\.com|twitter\.com)$/.test(location.hostname);
 const searchTips = ['Refine by color, style, or budget.', 'Prices keep their original currency.', 'Source links live in Product details.', 'A closer crop helps focus on one object.'];
 
@@ -31,6 +34,8 @@ function node<K extends keyof HTMLElementTagNameMap>(name: K, text?: string): HT
   return element;
 }
 function send<T>(message: unknown): Promise<T> {
+  const type = typeof message === 'object' && message !== null && 'type' in message ? message.type : '';
+  if (type !== 'NEEDLE_OVERLAY_CANCEL' && type !== 'NEEDLE_OVERLAY_VOICE_CANCEL' && !shopping.isEnabled()) return Promise.reject(new Error('Needle is off. Turn it on in the side panel.'));
   try { return chrome.runtime.sendMessage(message) as Promise<T>; }
   catch { return Promise.reject(new Error('Refresh this page after reloading Needle.')); }
 }
@@ -293,7 +298,7 @@ function makePopup(target: ShoppingTarget, x: number, y: number): Popup {
 
 // Old isolated worlds can outlive an extension reload; yield to the new listener.
 function onContextMenu(event: MouseEvent): void {
-  if (!connected() || !event.isTrusted || event.shiftKey || (current && event.composedPath().includes(current.host))) return;
+  if (!shopping.isEnabled() || !connected() || !event.isTrusted || event.shiftKey || (current && event.composedPath().includes(current.host))) return;
   const target = targetAt(event);
   if (!target) return;
   event.preventDefault(); event.stopImmediatePropagation();
@@ -315,7 +320,7 @@ const onMessage: Parameters<typeof chrome.runtime.onMessage.addListener>[0] = (m
   if (message.type === 'NEEDLE_CAPTURE_FINISHED') { popup.host.style.setProperty('visibility', 'visible', 'important'); respond({ ok: true }); return; }
   if (!['NEEDLE_PREPARE_CAPTURE', 'NEEDLE_VALIDATE_CAPTURE'].includes(message.type)) return;
   const prepare = () => {
-    if (current !== popup) { respond({ error: 'Selection cancelled' }); return; }
+    if (!shopping.isEnabled() || current !== popup) { respond({ error: 'Selection cancelled' }); return; }
     try {
       const box = targetGeometry(popup.target, popup.pointerX, popup.pointerY); mediaCrop(box);
       respond({ geometry: box, ...targetText(popup.target, isX) });
@@ -335,6 +340,7 @@ window.addEventListener('resize', onResize);
 chrome.runtime.onMessage.addListener(onMessage);
 contentGlobal.__needleContentDispose = () => {
   dismiss();
+  shopping.dispose();
   window.removeEventListener('contextmenu', onContextMenu, { capture: true });
   window.removeEventListener('keydown', onKeyDown, { capture: true });
   window.removeEventListener('pointerdown', onPointerDown, { capture: true });

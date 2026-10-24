@@ -1,5 +1,6 @@
 import type { CapturedSelection, Selection } from '../../shared/types';
 import { installOverlayMessages } from './overlay-background';
+import { createShoppingGate } from './preferences';
 
 installOverlayMessages();
 
@@ -7,12 +8,23 @@ const MENU_ID = 'needle-find';
 const KEY = 'needle.selection';
 const SUPPORTED = /^https?:\/\//i;
 let latestCapture = 0;
+const shopping = createShoppingGate(enabled => {
+  if (!enabled) {
+    latestCapture++;
+    void chrome.storage.session.remove(KEY).catch(() => {});
+  }
+  // The menu may not exist yet on a fresh install.
+  void chrome.contextMenus.update(MENU_ID, { enabled }).catch(() => {});
+});
+void shopping.ready.catch(() => {});
 
 chrome.runtime.onInstalled.addListener(() => {
-  void chrome.contextMenus.removeAll().then(() => {
+  void chrome.contextMenus.removeAll().then(async () => {
+    await shopping.ready.catch(() => false);
     chrome.contextMenus.create({
       id: MENU_ID,
       title: 'Find with Needle',
+      enabled: shopping.isEnabled(),
       contexts: ['image', 'selection', 'page', 'link', 'video'],
       documentUrlPatterns: ['http://*/*', 'https://*/*'],
     });
@@ -35,22 +47,24 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const version = ++latestCapture;
   // Opening must happen in the original user-gesture callback, before an await.
   const open = chrome.sidePanel.open({ tabId: tab.id });
-  void open.then(() => capture(tab, info)).then(value => version === latestCapture ? save(value) : undefined)
-    .catch((error: unknown) => version === latestCapture ? saveFailure(tab, error) : undefined);
+  void open.then(async () => { await shopping.ready; return shopping.isEnabled() && version === latestCapture ? capture(tab, info) : undefined; })
+    .then(value => value && version === latestCapture && shopping.isEnabled() ? save(value) : undefined)
+    .catch((error: unknown) => version === latestCapture && shopping.isEnabled() ? saveFailure(tab, error) : undefined);
 });
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id == null) return;
   const version = ++latestCapture;
   const open = chrome.sidePanel.open({ tabId: tab.id });
-  void open.then(() => capture(tab)).then(value => version === latestCapture ? save(value) : undefined)
-    .catch((error: unknown) => version === latestCapture ? saveFailure(tab, error) : undefined);
+  void open.then(async () => { await shopping.ready; return shopping.isEnabled() && version === latestCapture ? capture(tab) : undefined; })
+    .then(value => value && version === latestCapture && shopping.isEnabled() ? save(value) : undefined)
+    .catch((error: unknown) => version === latestCapture && shopping.isEnabled() ? saveFailure(tab, error) : undefined);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type !== 'NEEDLE_CAPTURE' || sender.id !== chrome.runtime.id) return;
   const version = ++latestCapture;
-  void chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(async ([tab]) => {
+  void shopping.ready.then(() => { shopping.assertEnabled(); if (version !== latestCapture) throw new Error('Capture cancelled.'); return chrome.tabs.query({ active: true, lastFocusedWindow: true }); }).then(async ([tab]) => {
     if (!tab) throw new Error('Open a webpage and invoke Needle from its right-click menu first.');
     const selection = await capture(tab);
     if (version !== latestCapture) throw new Error('A newer selection is already open. Continue with that selection.');
@@ -61,7 +75,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function save(selection: CapturedSelection): Promise<void> {
+  shopping.assertEnabled();
   await chrome.storage.session.set({ [KEY]: selection });
+  if (!shopping.isEnabled()) await chrome.storage.session.remove(KEY);
 }
 
 function captureError(error: unknown): string {
@@ -77,6 +93,9 @@ async function saveFailure(tab: chrome.tabs.Tab, error: unknown): Promise<void> 
 }
 
 async function capture(tab: chrome.tabs.Tab, info?: chrome.contextMenus.OnClickData): Promise<CapturedSelection> {
+  shopping.assertEnabled();
+  const enabledSignal = shopping.signal();
+  const assertEnabled = () => { shopping.assertEnabled(); if (enabledSignal.aborted) throw new Error('Capture cancelled.'); };
   if (tab.id == null || !tab.url || !SUPPORTED.test(tab.url)) throw new Error('Unsupported browser page.');
   const selection: Selection = {
     text: info?.selectionText?.slice(0, 2000),
@@ -111,6 +130,7 @@ async function capture(tab: chrome.tabs.Tab, info?: chrome.contextMenus.OnClickD
   }
   // captureVisibleTab captures the active tab; never upload a different tab on a race.
   const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+  assertEnabled();
   if (active?.id !== tab.id) throw new Error('The active tab changed. Right-click the item again.');
   let changedDuringCapture = false;
   const onActivated = (activeInfo: { tabId: number; windowId: number }) => {
@@ -124,6 +144,7 @@ async function capture(tab: chrome.tabs.Tab, info?: chrome.contextMenus.OnClickD
   let screenshot: string;
   try {
     screenshot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 85 });
+    assertEnabled();
     const [after] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     if (changedDuringCapture || after?.id !== tab.id || after.url !== tab.url) {
       throw new Error('The page changed during capture. Right-click the item again.');
@@ -157,5 +178,6 @@ async function capture(tab: chrome.tabs.Tab, info?: chrome.contextMenus.OnClickD
     result.needsCrop = true;
   }
   // Full-page screenshot stays in session storage for the crop UI, never the backend.
+  assertEnabled();
   return result;
 }

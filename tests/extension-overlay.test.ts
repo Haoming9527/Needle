@@ -41,7 +41,7 @@ beforeEach(async () => {
   api = {
     runtime: { id: sender.id, onMessage: event() },
     sidePanel: { open: vi.fn(async () => {}) },
-    storage: { session: { set: vi.fn(async (v: Record<string, unknown>) => Object.assign(saved, v)), get: vi.fn(async (key: string) => ({ [key]: saved[key] })), remove: vi.fn(async (key: string) => { delete saved[key]; }) } },
+    storage: { local: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}) }, onChanged: event(), session: { set: vi.fn(async (v: Record<string, unknown>) => Object.assign(saved, v)), get: vi.fn(async (key: string) => ({ [key]: saved[key] })), remove: vi.fn(async (key: string) => { delete saved[key]; }) } },
     tabs: { query: vi.fn(async () => [tab]), captureVisibleTab: vi.fn(async () => 'data:image/jpeg;base64,AA=='), sendMessage: vi.fn(async () => ({ geometry: base, text: 'Shure microphone', context: 'Podcast recording' })), onActivated: event(), onUpdated: event() },
   };
   vi.stubGlobal('chrome', api);
@@ -54,6 +54,34 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('automatic right-click workflow', () => {
+  it('does not capture or upload while the persisted switch is off', async () => {
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    const response = await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-off' });
+    expect(response.error).toContain('Needle is off');
+    expect(api.tabs.captureVisibleTab).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('aborts a pending screenshot before upload when switched off', async () => {
+    let finish!: () => void;
+    api.tabs.captureVisibleTab.mockImplementation(() => new Promise<string>(resolve => { finish = () => resolve('data:image/jpeg;base64,AA=='); }));
+    const discovery = message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-disable' });
+    await vi.waitFor(() => expect(api.tabs.captureVisibleTab).toHaveBeenCalled());
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: true } }, 'local');
+    finish();
+    expect((await discovery).error).toBeTruthy(); expect(fetch).not.toHaveBeenCalled();
+  });
+  it('aborts an already-running provider request and ignores its late response after OFF', async () => {
+    let finish!: () => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise<Response>(resolve => { finish = () => resolve(Response.json(result)); }));
+    const discovery = message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-disable-fetch' });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    const signal = vi.mocked(fetch).mock.calls[0][1]!.signal!;
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    expect(signal.aborted).toBe(true);
+    finish();
+    expect((await discovery).error).toBeTruthy();
+    expect(saved['needle.overlay.12']).toBeUndefined();
+  });
   it('sends the exact off-center cursor point and a marked crop to vision', async () => {
     const edge = { ...base, pointerX: 105, pointerY: 45 };
     api.tabs.sendMessage.mockResolvedValue({ geometry: edge });
@@ -223,5 +251,19 @@ describe('automatic right-click workflow', () => {
     expect(signal.aborted).toBe(true); release();
     expect((await pending).error).toContain('cancelled');
     expect(saved['needle.overlay.12'].result.interpretation.needsClarification).toBe(true);
+  });
+  it('aborts speech when switched off and never returns late audio after re-enabling', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ...result, interpretation: { needsClarification: true, clarification: 'Which item?' }, offers: [] }));
+    await message({ type: 'NEEDLE_OVERLAY_DISCOVER', requestId: 'selection-voice-off' });
+    let release!: () => void;
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(Response.json({ audioDataUrl: 'data:audio/mpeg;base64,AAAA' })); }));
+    const pending = message({ type: 'NEEDLE_OVERLAY_SPEAK', requestId: 'selection-voice-off' });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    const signal = vi.mocked(fetch).mock.calls[1][1]!.signal!;
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: false } }, 'local');
+    api.storage.onChanged.emit({ 'needle.enabled': { newValue: true } }, 'local');
+    expect(signal.aborted).toBe(true); release();
+    const response = await pending;
+    expect(response.error).toBeTruthy(); expect(response.audioDataUrl).toBeUndefined();
   });
 });

@@ -32,6 +32,7 @@ const refineSchema = z.object({ sessionId: z.string().uuid(), instruction: z.str
 const clarifySchema = z.object({ sessionId: z.string().uuid(), answer: z.string().trim().min(1).max(1000), selection: selectionSchema }).strict();
 const orderSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), confirmationId: z.string().min(8).max(100), confirmed: z.literal(true), cartItemId: z.string().uuid().optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 const cartSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
+const clearSchema = z.object({}).strict();
 
 export interface AppOptions { config?: ServerConfig; sampleProvider?: ProductProvider; liveProvider?: ProductProvider; webDemoProvider?: ProductProvider; decisionProvider?: typeof decideProducts }
 
@@ -126,6 +127,12 @@ export function createApp(options: AppOptions = {}) {
   app.get('/health', (_req, res) => res.json({ status: 'ok', defaultMode: config.defaultMode, liveAvailable: !liveMissing.length, missingKeys: liveMissing, model: config.model, agentAvailable: agentAvailable(config), agentMode: agentAvailable(config) ? 'ai' : 'catalog', voiceAvailable: !!config.openAiKey, decisionAvailable: !!config.openAiKey, database: 'sqlite' }));
   app.get('/cart', (_req, res) => res.json({ items: database.cart() }));
   app.get('/orders', (_req, res) => res.json({ orders: database.history() }));
+  app.post('/cart/clear', (req, res, next) => {
+    try { clearSchema.parse(req.body); res.json({ items: database.clearCart() }); } catch (error) { next(error); }
+  });
+  app.post('/orders/clear', (req, res, next) => {
+    try { clearSchema.parse(req.body); res.json({ orders: database.clearHistory() }); } catch (error) { next(error); }
+  });
   app.post('/cart', (req, res, next) => {
     try { const body = cartSchema.parse(req.body); res.json({ items: database.addCart(body.sessionId, body.offerId, body.variant, body.quantity) }); } catch (error) { next(error); }
   });
