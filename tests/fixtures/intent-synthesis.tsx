@@ -57,7 +57,7 @@ globalThis.fetch = async (input, init) => {
     await delay(init?.signal);
     if (key !== state.synthesis!.contextKey || !state.consent) return failure('Context changed while the scripted response was pending.');
     if (failNext || (scenario === 'error' && aiCalls === 1)) { failNext = false; signal(); return failure('Scripted provider error. Retry is available; no real model request occurred.', 502); }
-    if (scenario === 'abstain') { state.hypotheses = []; state.synthesis = { ...state.synthesis!, status: 'abstained', result: { outcome: 'abstain', label: null, need: null, why: 'The scripted model declines to assume that meals and commuting belong to one need.', uncertainty: 'These topics may be unrelated. More context is needed.', question: null, productQuery: null, evidence: [] } }; return json(); }
+    if (scenario === 'abstain') { state.hypotheses = []; state.synthesis = { ...state.synthesis!, status: 'abstained', result: { outcome: 'abstain', label: null, need: null, why: null, uncertainty: 'These topics may be unrelated. More context is needed.', question: null, productQuery: null, evidence: [] } }; return json(); }
     const result = output(body.correction);
     state.hypotheses = [hypothesis(result, body.correction)];
     state.synthesis = { ...state.synthesis!, status: 'ready', result, correction: body.correction, generatedAt: new Date().toISOString() };

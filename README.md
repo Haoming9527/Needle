@@ -7,13 +7,13 @@ A local Chrome extension with a compact right-click shopping popup, a Vercel AI 
 
 ## Connected discovery demo (v0.7)
 
-Open **Discover** for the primary low-intent workflow: browse a recipe article, then a cycling-to-work article. Two controlled local reading pages measure actual cursor time within marked regions; their articles and topic labels are prepared demo data. Needle explains the observed clues, possible connection and uncertainty, then asks you to confirm or correct the need. Only after your feedback does one relevant product appear inline. The rule-based context score and product search are separate; ordinary-site background tracking is not implemented. Existing Save / Find capture and search relevance remain unchanged. A labelled synthetic replay is available as a fallback.
+Open **Discover** for the primary low-intent workflow: browse a recipe article, then a cycling-to-work article. Two controlled local reading pages measure actual cursor time within marked regions; their articles and topic labels are prepared demo data. Choose **Connect observations with AI** to propose a tentative need, with cited observations, a short explanation and uncertainty. The model can also decline to connect them. Confirm the need before one relevant product appears; correcting the connection produces a new hypothesis that needs confirmation. AI synthesis, heuristic readiness and product search are separate; ordinary-site background tracking is not implemented. Existing Save / Find capture and search relevance remain unchanged. A labelled synthetic replay is available as a fallback.
 
 **Saved** supports durable inspiration, product wishlists, named collections, and conditional group-buy simulations. Each group contains two labelled synthetic participants; joining expresses a price condition and never creates an order. **Find**, **Cart**, and **History** retain the existing flow, with visibly simulated checkout.
 
-The deterministic connected demo runs without provider keys. Existing AI vision and web search still use backend credentials when configured. For isolated testing without touching your usual database, set `DATABASE_PATH=.local/connected-demo-review.sqlite`.
+AI synthesis requires a backend provider key and sends only the reviewed, bounded saved context when you explicitly request it. The **Show prepared rule-based demo** fallback runs without keys and is labelled separately. Existing AI vision and web search keep their current configuration. For isolated testing without touching your usual database, set `DATABASE_PATH=.local/connected-demo-review.sqlite`.
 
-See [the connected demo walkthrough and architecture](docs/CONNECTED_DEMO.md).
+See [the connected demo walkthrough](docs/CONNECTED_DEMO.md) and [the AI synthesis contract, setup and verification limits](docs/AI_SYNTHESIS.md).
 
 The editorial article at `demo.html` uses realistic generated photography: a sunlit workspace, headphones, backpack, and task lamp. Right-click a photograph to begin shopping. Loading includes an animated scan, actual elapsed time, rotating tips, and an always-available cancel control. No percentage or completed search stage is fabricated.
 
@@ -104,6 +104,8 @@ Existing `.local/demo-orders.json` receipts are imported once without changing t
 | --- | --- |
 | `GET /health` | Agent/configuration status; no secret values |
 | `POST /discover` | Interpret selected content and recommend items |
+| `POST /intent/synthesize` | Connect bounded saved context into a cited hypothesis or abstention |
+| `POST /intent/hypotheses/:id/recommendation` | Search only after confirmation of the current need |
 | `POST /refine` | Search again while preserving the original target |
 | `POST /clarify` | Answer a pending question and re-identify the original crop |
 | `GET /cart`, `POST /cart` | Read cart or add a reviewed offer |

@@ -2,8 +2,18 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## Step 4 AI synthesis (current pass)
+
+- Added an explicit provider-backed synthesis stage over at most 12 saved observations. Responses must cite existing evidence from at least two sources or abstain. It has no search tools. The product route still requires current user confirmation; corrections withdraw the old product and require reconfirmation.
+- **253 tests in 26 files passed**, including provider structured-output validation, SDK response handling, store persistence, cache behavior, tagless contexts, consent, stale response races, correction budgets, and cancellation even when a provider ignores the abort signal. TypeScript, production Vite/extension build and package validation passed.
+- Browser-tested the actual Discover component using the development-only scripted fixture: zero product searches before confirmation; one after confirmation; no repeat on focus refresh; failed correction withdraws the product and preserves editable text; retry returns a tentative corrected need with the budget retained; reconfirmation produces the revised product. Abstention triggers no product search. A completed assessment arriving after an error becomes visible on refresh.
+- Inspected the desktop layout and readable input preview. Screenshot `.local/screenshots/ai-synthesis-fixture.png` explicitly shows scripted responses and no external calls. The real panel correctly disables AI synthesis without credentials and shows the prepared rule flow only when explicitly selected. The previous measured-attention rehearsal remains recorded below; it was not represented as live AI synthesis.
+- No configured API key was present in this checkout. **Actual external-model synthesis and reasoning quality remain unverified.** Mocked SDK tests and scripted UI responses verify the integration, not model quality. See `AI_SYNTHESIS.md` for the live rehearsal cases.
+- This pass does not modify extension capture, the attention collector, product identification, catalog/Exa providers, crop or clarification components. The shared Save hook now admits opted-in bounded context with no prepared topic tag, enabling new topics without changing how capture or search works.
+
 ## Latest team synchronization
 
+- Remote main remains `05909ce`; this branch includes it. The latest separate `codex/logan-decision-review` head inspected was `bb5a666`, adding local model services, model cards, an optional Logan decision adapter and tests. These are not integrated into this intent flow; their reported evaluations were not independently reproduced here.
 - Synced main through `05909ce`, which removes only eight Logan data/model/report artifacts for separate branch review. Low-intent source, runtime, and tests are unchanged. The earlier artifact review below is historical; those files are no longer in this branch.
 
 ## v0.7 measured attention integration
