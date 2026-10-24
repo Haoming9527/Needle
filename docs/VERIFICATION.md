@@ -9,6 +9,8 @@ Checked on 25 October 2026 (Asia/Singapore).
 - Browser rehearsal used trusted pointer input in the real page regions: recipe dwell measured 2,002ms and produced no hypothesis; commute dwell added a tentative connection. Both observations retained the actual loopback origin, region, session/page IDs and measurement metadata. Navigation did not inject fixture observations.
 - Confirming a KRW 30,000 limit returned the KRW 24,000 lunch container; correcting to eating at home returned the KRW 21,000 storage set and retained the budget. Refreshing recorded context left the product stable and the persisted discovery-session count unchanged at 5.
 - Desktop and 390px visual inspection passed; mobile document width and scroll width were both 390px. Screenshots: `.local/screenshots/measured-commute-source.png`, `measured-intent-connection.png`, `measured-intent-mobile.png`.
+- Removing measured recipe evidence cleared the inline product; measuring replacement evidence required a fresh confirmation.
+- Integrated main through `9aaa4d6`. Its eight added Logan files are data/model/report artifacts only; no runtime behavior changed. The agent checked matching report hashes and no exact text overlap between training/validation/evaluation; model performance was not independently reproduced.
 - This demonstrates two prepared sources on one local origin. It does not verify arbitrary cross-site collection, stationary pointer attention, installed Chrome behavior, authenticated provider calls, or seller sharing. See `ATTENTION_DATA.md` for the producer contract and boundaries.
 
 ## v0.7 low-intent workflow refinement
