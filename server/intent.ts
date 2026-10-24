@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { IntentAction, IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
+import type { IntentAction, IntentConnection, IntentFeedback, IntentHypothesis, IntentObservation, IntentObservationInput, IntentState, IntentTag } from '../shared/intent.js';
 import { ApiError } from './errors.js';
 
 const weights = { dwell: 2, revisit: 2, find: 3, save: 4, wishlist: 4, group_interest: 4, cart: 5 };
@@ -8,6 +8,50 @@ const weak = (value: IntentObservation) => value.action === 'dwell' || value.act
 const site = (origin: string) => new URL(origin).hostname.replace(/^www\./, '');
 const semanticKey = (value: IntentObservationInput) => `${site(value.sourceOrigin)}:${value.entityKey ?? value.summary.trim().toLowerCase().replace(/\s+/g, ' ')}`;
 const parse = <T>(data: unknown): T => JSON.parse(String(data)) as T;
+
+/** Bounded reasoning templates keep captured actions distinct from proposed needs. */
+function connectionFor(first: IntentObservation, second: IntentObservation, key: IntentHypothesis['recommendationKey'], response?: IntentFeedback): IntentConnection {
+  const corrected = response?.action === 'correct';
+  const confirmed = corrected || response?.action === 'confirm';
+  const templates = {
+    'portable-lunch': {
+      tentative: 'Carrying prepared meals during a commute might be useful.',
+      confirmed: 'You confirmed that carrying prepared meals during a commute would be useful.',
+      uncertainty: 'These visits do not establish that you prepare meals, commute by bicycle, or want to buy anything.',
+      question: 'Would bringing prepared food on a commute be useful to you?',
+      rationale: 'Based on the need you confirmed, a portable container could help carry prepared food. Suitability still needs checking.',
+    },
+    'home-meal-prep': {
+      tentative: 'Preparing and storing meals at home might be useful.',
+      confirmed: 'You clarified that the useful need is preparing and storing food at home.',
+      uncertainty: 'The original browsing connection did not establish this need; your correction supplies the context.',
+      question: 'Would help preparing and storing food at home be useful?',
+      rationale: 'Your correction points to home food storage. The earlier commuting observation is not a reason to recommend a portable product.',
+    },
+    recording: {
+      tentative: 'Putting together a home recording setup might be useful.',
+      confirmed: 'You confirmed that a home recording setup would be useful.',
+      uncertainty: 'These visits do not establish that you record audio or want to buy equipment.',
+      question: 'Would help putting together a home recording setup be useful?',
+      rationale: 'Based on the need you confirmed, a microphone could support recording. Compatibility and suitability still need checking.',
+    },
+    'work-calls': {
+      tentative: 'Improving everyday work calls might be useful.',
+      confirmed: 'You clarified that improving everyday work calls is the useful need.',
+      uncertainty: 'The original recording hypothesis did not establish this need; your correction supplies the context.',
+      question: 'Would help improving everyday work calls be useful?',
+      rationale: 'Your correction points to equipment for everyday calls. The earlier recording hypothesis does not justify a recording-focused purchase.',
+    },
+  };
+  const template = templates[key];
+  return {
+    observations: [first, second].map(value => ({ observationId: value.id, sourceTitle: value.sourceTitle, action: value.action, summary: value.summary, provenance: value.provenance })),
+    inferredNeed: { text: confirmed ? template.confirmed : template.tentative, basis: corrected ? 'user_corrected' : confirmed ? 'user_confirmed' : 'hypothesis' },
+    uncertainty: confirmed ? `${corrected ? template.uncertainty + ' ' : ''}Confirming a useful need does not express a purchase decision.` : template.uncertainty,
+    question: template.question,
+    ...(confirmed ? { productRationale: template.rationale } : {}),
+  };
+}
 
 /** Local single-user evidence memory. Scores are explainable heuristic points, never probabilities. */
 export class IntentStore {
@@ -138,6 +182,7 @@ export function evaluateIntent(observations: IntentObservation[], feedback = new
       : readinessEvidence.some(value => ['save', 'wishlist'].includes(value.action)) ? 'considering' : 'exploring';
     const fixture = counted.some(value => value.provenance === 'demo_fixture');
     return [{ id: candidate.id, label, question: candidate.question, recommendationKey, readiness,
+      connection: connectionFor(first, second, recommendationKey, response),
       interest: response?.action === 'confirm' || corrected ? 'confirmed' : 'tentative',
       status: response?.action === 'dismiss' ? 'dismissed' : 'active', evidencePoints,
       evidenceIds: counted.map(value => value.id), constraints: response?.constraints,

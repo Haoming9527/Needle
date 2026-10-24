@@ -8,7 +8,24 @@ export interface IntentObservationInput {
 }
 export interface IntentObservation extends IntentObservationInput { createdAt: string }
 export type RecommendationKey = 'portable-lunch' | 'home-meal-prep' | 'recording' | 'work-calls';
+export interface IntentConnection {
+  observations: Array<{
+    observationId: string;
+    sourceTitle: string;
+    action: IntentAction;
+    summary: string;
+    provenance: 'observed' | 'demo_fixture';
+  }>;
+  inferredNeed: {
+    text: string;
+    basis: 'hypothesis' | 'user_confirmed' | 'user_corrected';
+  };
+  uncertainty: string;
+  question: string;
+  productRationale?: string;
+}
 export interface IntentHypothesis {
+  connection: IntentConnection;
   id: string; label: string; question: string; interest: 'tentative' | 'confirmed';
   readiness: 'exploring' | 'considering' | 'conditional' | 'ready_to_review';
   evidencePoints: number; evidenceIds: string[]; explanation: string; status: 'active' | 'dismissed';
