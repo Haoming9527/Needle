@@ -46,6 +46,21 @@ describe('connected discovery, collections and conditional demand', () => {
     expect(storage.offers.every(offer => offer.id.startsWith('sample-storage-'))).toBe(true);
   });
 
+  it('preserves constraints when correcting a need and ignores pledges for the rejected use case', async () => {
+    const api = setup(); await seed(api);
+    await api.post('/intent/hypotheses/lunch-on-the-move/feedback').send({ action: 'confirm', constraints: 'Under KRW 30,000' }).expect(200);
+    const offer = (await discover(api)).offers[0]!, item = saved(offer);
+    await api.post('/saved-items').send(item).expect(200);
+    const campaign = (await api.post('/group-buys').send({ savedItemId: item.id, targetParticipants: 3, targetPrice: 15000, currency: 'KRW' }).expect(200)).body.campaign;
+    await api.post(`/group-buys/${campaign.id}/join`).send({ maxPrice: 15000, currency: 'KRW' }).expect(200);
+    expect((await state(api)).hypotheses[0]?.readiness).toBe('conditional');
+    const corrected = await api.post('/intent/hypotheses/lunch-on-the-move/feedback').send({ action: 'correct', correction: 'home-meal-prep' }).expect(200);
+    expect(corrected.body.hypotheses[0]).toMatchObject({ recommendationKey: 'home-meal-prep', constraints: 'Under KRW 30,000', readiness: 'exploring' });
+    const storage = await discover(api, 'food storage container; Under KRW 30,000');
+    expect(storage.offers.length).toBeGreaterThan(0);
+    expect(storage.offers.every(offer => offer.id.startsWith('sample-storage-') && offer.price !== null && offer.price < 30000)).toBe(true);
+  });
+
   it('moves from collection to conditional pledge to cart and retracts actions even with memory paused', async () => {
     const api = setup(); await seed(api);
     const result = await discover(api), offer = result.offers[0]!, item = saved(offer);

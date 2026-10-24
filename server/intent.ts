@@ -81,7 +81,10 @@ export class IntentStore {
     if (!this.getState().hypotheses.some(value => value.id === id)) throw new ApiError(404, 'INTENT_NOT_FOUND', 'That interest is no longer available.');
     if (input.action === 'correct' && !input.correction) throw new ApiError(400, 'CORRECTION_REQUIRED', 'Choose the corrected need.');
     if (input.action === 'correct' && ((id === 'lunch-on-the-move' && input.correction !== 'home-meal-prep') || (id === 'recording-setup' && input.correction !== 'work-calls'))) throw new ApiError(400, 'INVALID_CORRECTION', 'Choose a correction relevant to this interest.');
-    this.db.prepare('INSERT INTO intent_feedback VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(id, JSON.stringify(input));
+    const previous = this.db.prepare('SELECT data FROM intent_feedback WHERE id=?').get(id);
+    const prior = previous ? parse<IntentFeedback>(previous.data) : undefined;
+    const updated = { ...input, constraints: input.constraints ?? prior?.constraints };
+    this.db.prepare('INSERT INTO intent_feedback VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(id, JSON.stringify(updated));
     return this.getState();
   }
   remove(id: string): IntentState {

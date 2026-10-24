@@ -41,7 +41,9 @@ The key demo reveal now reads visually as two source cards → one tentative que
 
 ## Team changes preserved
 
-The implementation integrates remote commit `6f27063`: retailer-neutral search and source labels, currency improvements, selected-image fallbacks, and associated tests. This branch adds context discovery without replacing those changes.
+The implementation integrates remote commit `6f27063`: retailer-neutral search and source labels, currency improvements, selected-image fallbacks, and associated tests. It also preserves `66b7ccf` and `4e9c3c7`, which add the independent `logan/` bilingual shopper/seller workspace and HookRank content ranking.
+
+Logan runs separately on port 4320. Its local JSON events do not yet feed the SQLite intent, collections, conditional pledges or cart. Its explicit-search adapter calls Needle's product discovery, but candidate relevance is distinct from purchase readiness. A future bridge needs stable product IDs and an explicit sharing boundary before sending browsing evidence to seller views. For this demo, present Logan as a separate seller-side concept, not an already connected merchant integration.
 
 ## Seven-minute presentation
 

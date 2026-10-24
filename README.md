@@ -2,7 +2,7 @@
 
 **See it anywhere. Find it with Needle.**
 
-A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. Needle searches across stores, using 18 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
+A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and SQLite context memory, collections, cart and purchase history. Needle searches across stores, using 24 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
 
 
 ## Connected discovery demo (v0.5)
