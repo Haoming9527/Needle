@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CatalogAgentProvider } from '../server/catalog-agent.js';
 import { SampleProvider } from '../server/sample-provider.js';
 import type { ServerConfig } from '../server/config.js';
+import { identifyWithAI } from '../server/ai.js';
 
 const config: ServerConfig = { exaKey: '', openAiKey: 'test-only', model: 'test-model', defaultMode: 'sample', timeoutMs: 45000, orderFile: null };
 const item = { name: 'Black podcast microphone', productType: 'microphone', brand: null, model: null, color: 'Black', attributes: ['Dynamic'], queries: ['podcast microphone'], needsClarification: false, clarification: null };
@@ -41,5 +42,29 @@ describe('Vercel AI SDK catalog agent', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { message: 'bad key', type: 'invalid_request_error', code: 'invalid_api_key' } }), { status: 401 })));
     const provider = new CatalogAgentProvider(config, new SampleProvider());
     await expect(provider.identify({ text: 'microphone' }, new AbortController().signal)).rejects.toMatchObject({ code: 'AI_CREDENTIALS' });
+  });
+  it('sends the marked crop and exact off-center cursor position with the buyer answer to vision', async () => {
+    const mock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ id: 'response-focus', model: 'test-model', output: [message({ ...item, brand: 'Shure', model: 'SM7B' })] }), { status: 200 }));
+    vi.stubGlobal('fetch', mock);
+    const clarified = await identifyWithAI(config, {
+      text: 'Nearby post text (untrusted context): purple shirt',
+      imageDataUrl: 'data:image/jpeg;base64,AAAA', annotatedImageDataUrl: 'data:image/jpeg;base64,BBBB',
+      focus: { x: 0.06, y: 0.8 },
+      clarifications: [{ question: 'The microphone or the shirt?', answer: 'The Shure SM7B microphone.' }],
+    }, new AbortController().signal);
+    const body = JSON.parse(mock.mock.calls[0][1]?.body as string);
+    const serialized = JSON.stringify(body);
+    expect(serialized).toContain('data:image/jpeg;base64,BBBB');
+    expect(serialized).not.toContain('data:image/jpeg;base64,AAAA');
+    const prompt = body.input.find((entry: { role: string }) => entry.role === 'user').content.find((part: { type: string }) => part.type === 'input_text').text;
+    expect(JSON.parse(prompt)).toMatchObject({ cursorFocus: { x: 0.06, y: 0.8, marked: true }, clarificationConversation: [{ question: 'The microphone or the shirt?', answer: 'The Shure SM7B microphone.' }] });
+    expect(serialized).toContain('near an edge, not the center');
+    expect(clarified.identifierEvidence).toBe('text');
+  });
+
+  it('does not use nearby page text as exact-model evidence for a cursor-selected image', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ id: 'response-focus', model: 'test-model', output: [message({ ...item, brand: 'Shure', model: 'SM7B' })] }), { status: 200 })));
+    const interpreted = await identifyWithAI(config, { text: 'Shure SM7B', imageDataUrl: 'data:image/jpeg;base64,AAAA', focus: { x: 0.1, y: 0.9 } }, new AbortController().signal);
+    expect(interpreted.identifierEvidence).toBe('visual');
   });
 });

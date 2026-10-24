@@ -13,8 +13,12 @@ export function mediaCrop(value: MediaGeometry): CropBox {
   const left = Math.max(0, value.x), top = Math.max(0, value.y);
   const right = Math.min(value.viewportWidth, value.x + value.width), bottom = Math.min(value.viewportHeight, value.y + value.height);
   if (right - left < 8 || bottom - top < 8 || value.pointerX < left || value.pointerX > right || value.pointerY < top || value.pointerY > bottom) throw new Error('The object moved. Right-click it again.');
-  const width = Math.min(480, right - left), height = Math.min(480, bottom - top);
+  const width = Math.min(320, right - left), height = Math.min(320, bottom - top);
   return { x: Math.max(left, Math.min(right - width, value.pointerX - width / 2)), y: Math.max(top, Math.min(bottom - height, value.pointerY - height / 2)), width, height, viewportWidth: value.viewportWidth, viewportHeight: value.viewportHeight };
+}
+/** Cropping near an edge shifts the image, so the cursor is not necessarily centered. */
+export function cropFocus(box: CropBox, pointer: Pick<MediaGeometry, 'pointerX' | 'pointerY'>): { x: number; y: number } {
+  return { x: Math.max(0, Math.min(1, (pointer.pointerX - box.x) / box.width)), y: Math.max(0, Math.min(1, (pointer.pointerY - box.y) / box.height)) };
 }
 export function sameGeometry(a: MediaGeometry, b: MediaGeometry): boolean {
   return !!a && !!b && geometryKeys.every(key => Number.isFinite(a[key]) && Number.isFinite(b[key]) && Math.abs(a[key] - b[key]) < 1);

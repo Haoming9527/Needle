@@ -14,14 +14,20 @@ import { SampleProvider } from './sample-provider.js';
 import { WebDemoProvider } from './web-demo-provider.js';
 
 const preferenceSchema = z.object({ budget: z.number().finite().nonnegative().max(1_000_000_000).optional(), currency: z.string().regex(/^[A-Z]{3}$/).optional() }).strict();
+const imageDataSchema = z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/);
 const selectionSchema = z.object({
   text: z.string().max(4000).optional(),
-  imageDataUrl: z.string().max(6_000_000).regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/).optional(),
+  imageDataUrl: imageDataSchema.optional(),
+  annotatedImageDataUrl: imageDataSchema.optional(),
+  focus: z.object({ x: z.number().finite().min(0).max(1), y: z.number().finite().min(0).max(1) }).strict().optional(),
+  clarifications: z.array(z.object({ question: z.string().trim().min(1).max(500), answer: z.string().trim().min(1).max(1000) }).strict()).max(5).optional(),
   imageUrl: z.string().max(5000).refine(value => !!publicImageUrl(value), 'Use a public HTTPS image URL.').optional(),
   pageUrl: z.string().max(5000).url().optional(), pageTitle: z.string().max(500).optional(), capturedAt: z.string().max(50).optional(),
-}).strict().refine(value => !!value.text?.trim() || !!value.imageDataUrl || !!value.imageUrl, 'Select an image or text, or add a description.');
+}).strict().refine(value => !!value.text?.trim() || !!value.imageDataUrl || !!value.imageUrl, 'Select an image or text, or add a description.')
+  .refine(value => !value.annotatedImageDataUrl || (!!value.imageDataUrl && !!value.focus), 'A marked image requires the original crop and cursor position.');
 const discoverSchema = z.object({ selection: selectionSchema, preferences: preferenceSchema.optional(), mode: z.enum(['sample', 'live']).optional() }).strict();
 const refineSchema = z.object({ sessionId: z.string().uuid(), instruction: z.string().trim().min(1).max(1000), preferences: preferenceSchema.optional() }).strict();
+const clarifySchema = z.object({ sessionId: z.string().uuid(), answer: z.string().trim().min(1).max(1000), selection: selectionSchema }).strict();
 const orderSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), confirmationId: z.string().min(8).max(100), confirmed: z.literal(true), cartItemId: z.string().uuid().optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 const cartSchema = z.object({ sessionId: z.string().uuid(), offerId: z.string().min(1).max(100), variant: z.string().min(1).max(100).optional(), quantity: z.number().int().min(1).max(99).optional() }).strict();
 
@@ -145,6 +151,34 @@ export function createApp(options: AppOptions = {}) {
       const result: SearchResponse = { sessionId: randomUUID(), mode: session.result.mode, interpretation: session.interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' };
       // Keep the original session immutable so an already-reviewed order cannot change underneath its confirmation.
       database.saveSession({ selection: session.selection, interpretation: session.interpretation, preferences, result });
+      res.json(result);
+    } catch (error) { next(error); }
+  });
+
+  app.post('/clarify', async (req, res, next) => {
+    try {
+      const body = clarifySchema.parse(req.body);
+      const session = database.session(body.sessionId);
+      if (!session.interpretation.needsClarification) throw new ApiError(409, 'NO_QUESTION_PENDING', 'This item is already identified. Refine the search or select another object.');
+      const mode = session.result.mode;
+      checkLive(mode);
+      // Images live with the browser selection, never in SQLite. Restore the saved
+      // context and question so a reply cannot accidentally use a new video frame.
+      const selection = {
+        ...body.selection,
+        ...session.selection,
+        clarifications: [...(session.selection.clarifications ?? []).slice(-4), {
+          question: session.interpretation.clarification || 'Which object do you want to find?',
+          answer: body.answer,
+        }],
+      };
+      const preferences = budgetFromInstruction(body.answer, session.preferences);
+      const result = await bounded(req, res, async signal => {
+        const interpretation = await providers[mode].identify(selection, signal);
+        const search = await searchWithFallback(mode, interpretation, preferences, signal);
+        return { sessionId: randomUUID(), mode, interpretation, ...search, agentMode: agentAvailable(config) ? 'ai' : 'catalog' } satisfies SearchResponse;
+      });
+      database.saveSession({ selection, interpretation: result.interpretation, preferences, result });
       res.json(result);
     } catch (error) { next(error); }
   });

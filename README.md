@@ -4,6 +4,10 @@
 
 A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. Needle searches across stores, using 18 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
 
+The editorial article at `demo.html` uses realistic generated photography: a sunlit workspace, headphones, backpack, and task lamp. Right-click a photograph to begin shopping. Loading includes an animated scan, actual elapsed time, rotating tips, and an always-available cancel control. No percentage or completed search stage is fabricated.
+
+Seven generated PNG assets live in `public/assets/photos/`. Full built-in image-generation prompts are recorded in `docs/PHOTO-PROMPTS-products.md`, `docs/PHOTO-PROMPTS-scenes.md`, and `docs/PHOTO-PROMPTS-audio.md`. These are illustrative category images, not verified photographs of the named catalog models.
+
 ## Run locally
 
 Requires Node.js 22.13+ (tested on 26.12.1).
@@ -17,7 +21,7 @@ npm run dev
 
 - [Shopping panel](http://127.0.0.1:5173/panel.html)
 - [X-style video interaction fixture](http://127.0.0.1:5173/x-demo.html)
-- [Inspiration page](http://127.0.0.1:5173/demo.html)
+- [Editorial article](http://127.0.0.1:5173/demo.html)
 
 The API binds to `127.0.0.1:4318`; Vite binds to `127.0.0.1:5173`. Keep them running. For the API alone, use `npm start`.
 
@@ -54,14 +58,14 @@ npm run build
 
 1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
 2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.4.1**, then refresh the webpage to remove the previous content script.
+3. Check that Chrome shows **version 0.6.0**, then refresh the webpage to remove the previous content script.
 4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
-5. Needle captures a small region around the cursor and automatically searches. Its two shopping actions become available when a result and any required variant are ready.
+5. Needle captures a small region around the cursor, marks the exact point for vision, and automatically searches. Its two shopping actions become available when a result and any required variant are ready. If the agent asks which object you mean, type your answer directly in the popup and press Enter or Search.
 6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
 
-Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. Ambiguous selections can be cropped or described in the panel.
+Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. The popup stays anchored through loading and results. Clarification replies in either the popup or panel reuse the original frame; manual crop/description controls remain available.
 
-If Chrome still shows only its normal menu, verify version 0.4.1, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+If Chrome still shows only its normal menu, verify version 0.6.0, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
 
 When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
 
@@ -69,7 +73,7 @@ When a product photo is missing or fails to load, recommendations, alternatives,
 
 Chrome's screenshot API requires `<all_urls>` for capture initiated by a webpage right-click rather than an extension-menu invocation. This expanded permission was explicitly approved. Content scripts now run in ordinary HTTP(S) top-level pages, as requested, and updates reattach them to open pages. No screenshots are captured until a user gesture. There is no ongoing feed scraping, X API access, posting, liking, or account automation.
 
-The popup is visible immediately, then briefly hidden during capture. Only a region of up to 480 × 480 CSS pixels, clipped to the visible media when detected or otherwise to the viewport, reaches the backend; tab switches, navigation, cancellation, and changed geometry invalidate capture. Raw full-tab pixels are transient. The manual crop fallback retains its screenshot only in extension session storage. Video protections may produce a black frame; use a description in that case.
+The popup is visible immediately, then briefly hidden during capture. Only a region of up to 320 × 320 CSS pixels, clipped to the visible media when detected or otherwise to the viewport, reaches the backend. Vision receives a marked copy with a target ring and exact normalized cursor coordinates, including near image edges; the shopper sees the clean crop. Replies reuse these images rather than recapturing a moving video. Tab switches, navigation, cancellation, and changed geometry invalidate capture. Raw full-tab pixels are transient. Neither crop copy is saved in SQLite. The manual crop fallback retains its screenshot only in extension session storage. Video protections may produce a black frame; use a description in that case.
 
 ## SQLite and the agent
 
@@ -88,6 +92,7 @@ Existing `.local/demo-orders.json` receipts are imported once without changing t
 | `GET /health` | Agent/configuration status; no secret values |
 | `POST /discover` | Interpret selected content and recommend items |
 | `POST /refine` | Search again while preserving the original target |
+| `POST /clarify` | Answer a pending question and re-identify the original crop |
 | `GET /cart`, `POST /cart` | Read cart or add a reviewed offer |
 | `POST /cart/:id/quantity` | Update quantity |
 | `POST /cart/:id/remove` | Remove an entry |
