@@ -2,6 +2,17 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## v0.7 connected discovery integration
+
+- Integrated team changes through `219a92f`: retailer-neutral search, image fallbacks, editorial photos, crop annotation, clarification, and Logan. Explicit Save/Find choice is preserved.
+- All **171 root tests in 18 files** passed. TypeScript, production Vite/extension build and package checks passed. Logan's **13 tests** also passed, including imported teammate tests and additional missing-asset/reversible-event checks.
+- New coverage verifies consent, two-source corroboration, non-circular recommendation saves, duplicate-save prevention, collections without score inflation, reversible cart/pledge actions while paused, correction with retained constraints, distinct product sets, and safe nested photo paths.
+- Browser-tested with no provider keys and an isolated `.local/connected-demo-review.sqlite`: one source produces no need; the second produces a tentative question; confirmation finds lunch containers; correction finds home storage; wishlist/collection, 2 synthetic participants plus local conditional interest, cart, and a simulated receipt complete. No payment or merchant order occurs.
+- Inspected desktop and 390px Discover layouts; document width equalled 390px at that viewport, with no horizontal overflow. Proof: `.local/screenshots/connected-intent-desktop.png` and `connected-intent-mobile.png`. Preview remains on the tentative connection.
+- Live passive dwell tracking, installed Chrome/X behavior, authenticated provider calls and real seller data-sharing were not validated in this run. Passive signals are labelled fixtures; the actual cursor Save path is explicit context capture. Logan remains a separate local seller concept. Expired pledge evidence currently needs withdrawal to retract intent.
+
+The sections below are historical teammate verification records; their older control labels and test counts do not describe this integrated version.
+
 ## v0.5 editorial photography and loading
 
 - Generated seven realistic photo assets with the built-in image generator and saved them under `public/assets/photos/`; full prompts are indexed in `PHOTO-PROMPTS.md`.
