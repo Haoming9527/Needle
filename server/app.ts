@@ -202,7 +202,12 @@ export function createApp(options: AppOptions = {}) {
       if (body.correction && previous) intent.feedback(previous.id, { action: 'dismiss' });
       const revision = intent.synthesisRevision();
       const controller = ownedController;
-      const output = await bounded(req, res, signal => synthesizer.synthesize(snapshot, AbortSignal.any([signal, controller.signal]), body.correction), 'Connecting these observations took too long. Retry when you are ready.');
+      const output = await bounded(req, res, async signal => {
+        const combined = AbortSignal.any([signal, controller.signal]);
+        const result = await synthesizer.synthesize(snapshot, combined, body.correction);
+        if (combined.aborted) throw new ApiError(409, 'SYNTHESIS_CANCELLED', 'The context connection was cancelled. No new result was accepted.');
+        return result;
+      }, 'Connecting these observations took too long. Retry when you are ready.');
       if (controller.signal.aborted || sequence !== synthesisSequence || intent.synthesisRevision() !== revision) throw new ApiError(409, 'INTENT_CONTEXT_CHANGED', 'Your context or feedback changed while AI was working. Review the current observations and retry.');
       const validated = validateSynthesisOutput(output, snapshot);
       res.json(intent.saveSynthesis(snapshot.contextKey, validated, body.correction));
