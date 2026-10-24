@@ -52,7 +52,7 @@ The implementation integrates remote commit `6f27063`: retailer-neutral search a
 
 The latest integration also preserves `219a92f`: generated demo photos, cursor-point crop annotation, clarification replies, and loading progress. These start after explicit Find; Save remains context-only. The combined build is version 0.7.0.
 
-Team commits `9dbbecf` and `9aaa4d6` are also integrated: synthetic bilingual training/evaluation data and E5 logistic-regression head weights/reports under `logan/ml`. They add no runtime loader, so they do not change cursor capture, search relevance or low-intent scoring. The reported gated routing result is 55/60 on prepared diagnostic examples; it is not production accuracy or a reproduced benchmark.
+Team commit `05909ce` reverted the synthetic datasets and E5 head artifacts from main for separate branch review. That revert is now included here. It changes no runtime code and leaves capture, search relevance and low-intent scoring intact. No trained Logan model is active in this flow.
 
 Logan runs separately on port 4320. Its local JSON events do not yet feed the SQLite intent, collections, conditional pledges or cart. Its explicit-search adapter calls Needle's product discovery, but candidate relevance is distinct from purchase readiness. A future bridge needs stable product IDs and an explicit sharing boundary before sending browsing evidence to seller views. For this demo, present Logan as a separate seller-side concept, not an already connected merchant integration.
 

@@ -2,6 +2,10 @@
 
 Checked on 25 October 2026 (Asia/Singapore).
 
+## Latest team synchronization
+
+- Synced main through `05909ce`, which removes only eight Logan data/model/report artifacts for separate branch review. Low-intent source, runtime, and tests are unchanged. The earlier artifact review below is historical; those files are no longer in this branch.
+
 ## v0.7 measured attention integration
 
 - Added separately opted-in measurement on two registered local reading regions. Actual pointer dwell is captured; article context and topic tags remain prepared data. Existing extension Save / Find, crop, clarification and search relevance were not changed in this pass.
