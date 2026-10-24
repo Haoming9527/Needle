@@ -68,6 +68,8 @@ function click(target: FakeElement, extra: Record<string, unknown> = {}) {
   return { target, clientX: 200, clientY: 200, composedPath: () => path, isTrusted: true, shiftKey: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(), ...extra } as unknown as MouseEvent;
 }
 function popup() { return root.children.find(child => !!child.shadow)!; }
+function button(label: string) { return popup().shadow!.querySelectorAll('button').find(value => value.textContent === label)!; }
+function findProducts() { button('Find products').emit('click'); }
 function contentMessage(type: string, requestId: string) {
   return new Promise<any>(resolve => { for (const listener of runtimeEvents) listener({ type, requestId }, { id: extensionId }, resolve); });
 }
@@ -122,19 +124,20 @@ describe('right-click target selection', () => {
 });
 
 describe('content-script action toolbar', () => {
-  it('shows exactly Buy, Add to cart, and × immediately while discovery is pending', async () => {
+  it('offers Save and Find before any discovery or capture starts', async () => {
     await import('../src/extension/content');
     const event = click(new FakeElement('div')); windowEvents.emit('contextmenu', event);
     expect(event.preventDefault).toHaveBeenCalled();
     expect(popup().style.visibility).toBe('visible');
     expect(popup().popoverOpen).toBe(true);
     const buttons = popup().shadow!.querySelectorAll('button');
-    expect(buttons.map(button => button.textContent)).toEqual(['Buy', 'Add to cart', '×']);
-    expect(buttons.map(button => button.disabled)).toEqual([true, true, false]);
-    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_DISCOVER' }));
+    expect(buttons.filter(button => !button.hidden).map(button => button.textContent)).toEqual(['Save inspiration', 'Find products', '×']);
+    expect(button('Buy').disabled).toBe(true); expect(button('Add to cart').disabled).toBe(true);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
   it('hides the toolbar only during screenshot preparation and keeps its crop bounded', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    findProducts();
     const requestId = sendMessage.mock.calls[0][0].requestId;
     const preparation = contentMessage('NEEDLE_PREPARE_CAPTURE', requestId);
     expect(popup().style.visibility).toBe('hidden');
@@ -145,11 +148,43 @@ describe('content-script action toolbar', () => {
   });
   it('cancels before discovery completes and ignores late results', async () => {
     await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('div')));
-    popup().shadow!.querySelectorAll('button')[2].emit('click');
+    findProducts();
+    button('×').emit('click');
     expect(root.children).toHaveLength(0);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_CANCEL' }));
     finishDiscovery({ result: { offers: [], interpretation: {} } });
     await Promise.resolve(); expect(root.children).toHaveLength(0);
+  });
+  it('saves inspiration without requesting discovery or screenshot preparation', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('p')));
+    button('Save inspiration').emit('click');
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'NEEDLE_OVERLAY_SAVE' }));
+    expect(popup().style.visibility).toBe('visible');
+    await Promise.resolve(); await Promise.resolve();
+    expect(button('Saved').disabled).toBe(true);
+    expect(sendMessage.mock.calls.some(([message]) => message.type === 'NEEDLE_OVERLAY_DISCOVER')).toBe(false);
+  });
+  it('returns only selected semantic context for READ_CONTEXT', async () => {
+    await import('../src/extension/content');
+    const section = new FakeElement('section'), heading = new FakeElement('h2'), paragraph = new FakeElement('p');
+    heading.textContent = 'Meal prep'; paragraph.textContent = 'Pack lunch ahead of time'; section.append(heading, paragraph);
+    windowEvents.emit('contextmenu', click(paragraph));
+    button('Save inspiration').emit('click');
+    const requestId = sendMessage.mock.calls[0][0].requestId;
+    expect(await contentMessage('NEEDLE_READ_CONTEXT', requestId)).toEqual({ text: 'Pack lunch ahead of time', context: 'Meal prep' });
+    expect(popup().style.visibility).toBe('visible');
+  });
+  it('ignores a READ_CONTEXT request from another extension or a stale popup', async () => {
+    await import('../src/extension/content'); windowEvents.emit('contextmenu', click(new FakeElement('p')));
+    button('Save inspiration').emit('click');
+    const requestId = sendMessage.mock.calls[0][0].requestId;
+    const reply = vi.fn();
+    for (const listener of runtimeEvents) {
+      listener({ type: 'NEEDLE_READ_CONTEXT', requestId }, { id: 'b'.repeat(32) }, reply);
+      listener({ type: 'NEEDLE_READ_CONTEXT', requestId: 'stale' }, { id: extensionId }, reply);
+    }
+    expect(reply).not.toHaveBeenCalled();
   });
   it('leaves the native menu untouched for Shift, editable fields, untrusted events, and invalidated contexts', async () => {
     await import('../src/extension/content');
@@ -164,6 +199,8 @@ describe('content-script action toolbar', () => {
   it('re-injection replaces earlier listeners instead of triggering duplicate searches', async () => {
     await import('../src/extension/content'); vi.resetModules(); await import('../src/extension/content');
     windowEvents.emit('contextmenu', click(new FakeElement('div')));
+    expect(sendMessage).not.toHaveBeenCalled();
+    findProducts();
     expect(sendMessage).toHaveBeenCalledTimes(1); expect(runtimeEvents.size).toBe(1);
   });
 });
