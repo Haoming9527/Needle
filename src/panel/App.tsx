@@ -1,0 +1,197 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowUp, Check, Crop, History, ImagePlus, Info, Plus, RefreshCw, Search, Settings2, ShoppingCart, X } from 'lucide-react';
+import type { CapturedSelection, CartItem, DemoOrder, DiscoverRequest, DiscoveryMode, HealthResponse, RefineRequest, SearchResponse, Selection } from '../../shared/types';
+import { clearCapturedSelection, getCapturedSelection, isExtension, requestCapture, subscribeToSelection } from '../extension/client';
+import { apiRequest, RequestError } from './api';
+import { CropDialog } from './CropDialog';
+import { CheckoutDialog, type CheckoutSelection } from './CheckoutDialog';
+import { ProductResult } from './ProductResult';
+import { Cart, PurchaseHistory } from './SavedItems';
+import { NeedleMark, ProductImage } from './ui';
+import './styles.css';
+
+const examples = [
+  { name: 'Headphones', query: 'Sony WH-1000XM5 headphones', image: 'assets/headphones.svg' },
+  { name: 'Backpack', query: 'Fjallraven Kanken backpack', image: 'assets/bag.svg' },
+  { name: 'Microphone', query: 'Shure SM7B podcast microphone', image: 'assets/microphone.svg' },
+];
+type Pending = { path: '/discover'; body: DiscoverRequest } | { path: '/refine'; body: RefineRequest };
+type Problem = { message: string; retryable: boolean };
+type View = 'find' | 'cart' | 'history';
+
+export default function App() {
+  const [view, setView] = useState<View>('find');
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [serviceOffline, setServiceOffline] = useState(false);
+  const [mode, setMode] = useState<DiscoveryMode>('sample');
+  const [selection, setSelection] = useState<Selection>({});
+  const [query, setQuery] = useState('');
+  const [preview, setPreview] = useState<string | null>(null);
+  const [cropImage, setCropImage] = useState<string | null>(null);
+  const [response, setResponse] = useState<SearchResponse | null>(null);
+  const [selectedOfferId, setSelectedOfferId] = useState('');
+  const [instruction, setInstruction] = useState('');
+  const [problem, setProblem] = useState<Problem | null>(null);
+  const [pending, setPending] = useState<Pending['path'] | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [captureBusy, setCaptureBusy] = useState(false);
+  const [captured, setCaptured] = useState<CapturedSelection | null>(null);
+  const [checkout, setCheckout] = useState<CheckoutSelection | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
+  const [budget, setBudget] = useState('');
+  const [currency, setCurrency] = useState('KRW');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [orders, setOrders] = useState<DemoOrder[]>([]);
+  const [collectionError, setCollectionError] = useState('');
+  const [collectionLoading, setCollectionLoading] = useState(true);
+  const [mutating, setMutating] = useState(false);
+  const [toast, setToast] = useState('');
+  const active = useRef<AbortController | null>(null);
+  const requestId = useRef(0);
+  const previousRequest = useRef<Pending | null>(null);
+  const lastCaptureId = useRef('');
+  const modeInitialized = useRef(false);
+  const queryRef = useRef<HTMLTextAreaElement>(null);
+  const cartMutation = useRef(false);
+  const collectionVersion = useRef(0);
+
+  const refreshHealth = useCallback(async () => {
+    try {
+      const status = await apiRequest<HealthResponse>('/health', undefined, AbortSignal.timeout(5000));
+      setHealth(status); setServiceOffline(false);
+      if (!modeInitialized.current) { modeInitialized.current = true; setMode(status.defaultMode); }
+    } catch { setServiceOffline(true); setHealth(null); }
+  }, []);
+  const refreshCollections = useCallback(async () => {
+    if (cartMutation.current) return;
+    const version = ++collectionVersion.current;
+    setCollectionLoading(true);
+    try {
+      const [basket, history] = await Promise.all([apiRequest<{ items: CartItem[] }>('/cart', undefined, AbortSignal.timeout(5000)), apiRequest<{ orders: DemoOrder[] }>('/orders', undefined, AbortSignal.timeout(5000))]);
+      if (version !== collectionVersion.current) return;
+      setCart(basket.items); setOrders(history.orders); setCollectionError('');
+    } catch (error) { if (version === collectionVersion.current) setCollectionError(error instanceof Error ? error.message : 'Your saved items could not be loaded.'); }
+    finally { if (version === collectionVersion.current) setCollectionLoading(false); }
+  }, []);
+  useEffect(() => { void refreshHealth(); void refreshCollections(); return () => active.current?.abort(); }, [refreshHealth, refreshCollections]);
+  useEffect(() => {
+    let alive = true;
+    let receivedUpdate = false;
+    const unsubscribe = subscribeToSelection(value => { receivedUpdate = true; setCaptured(value); });
+    void getCapturedSelection().then(value => { if (alive && !receivedUpdate && value) setCaptured(value); }).catch(() => undefined);
+    return () => { alive = false; unsubscribe(); };
+  }, []);
+  useEffect(() => {
+    const refresh = () => { if (document.visibilityState === 'visible') void refreshCollections(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { window.removeEventListener('focus', refresh); document.removeEventListener('visibilitychange', refresh); };
+  }, [refreshCollections]);
+  useEffect(() => {
+    if (!pending) return;
+    setElapsed(0); const timer = setInterval(() => setElapsed(value => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, [pending]);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(''), 4000); return () => clearTimeout(timer); }, [toast]);
+
+  const stopRequest = useCallback(() => { active.current?.abort(); requestId.current++; setPending(null); }, []);
+  const run = useCallback(async (request: Pending) => {
+    active.current?.abort(); const id = ++requestId.current;
+    const controller = new AbortController(); active.current = controller; previousRequest.current = request;
+    setCheckout(null); setPending(request.path); setProblem(null); setElapsed(0);
+    const timeout = setTimeout(() => controller.abort(), 45000);
+    try {
+      const result = await apiRequest<SearchResponse>(request.path, request.body, controller.signal);
+      if (requestId.current !== id) return;
+      setResponse(result); setSelectedOfferId(result.offers[0]?.id ?? ''); setServiceOffline(false); setShowEdit(result.interpretation.needsClarification);
+      if (request.path === '/refine') setInstruction('');
+    } catch (error) {
+      if (requestId.current !== id) return;
+      setProblem({ message: controller.signal.aborted ? 'Search took too long. Try a clearer crop or description.' : error instanceof Error ? error.message : 'Search could not finish. Try again.', retryable: error instanceof RequestError ? error.retryable : true });
+      setShowEdit(true);
+    } finally { clearTimeout(timeout); if (requestId.current === id) { setPending(null); active.current = null; } }
+  }, []);
+  const discover = useCallback((target: Selection, targetMode = mode) => {
+    setCheckout(null); setView('find');
+    if (!target.text?.trim() && !target.imageDataUrl && !target.imageUrl) { setProblem({ message: 'Select an object or describe what you want.', retryable: false }); queryRef.current?.focus(); return; }
+    const amount = budget.trim() === '' ? undefined : Number(budget);
+    if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0)) { setProblem({ message: 'Enter a budget greater than zero, or leave it empty.', retryable: false }); return; }
+    setResponse(null); setSelection(target);
+    void run({ path: '/discover', body: { selection: target, mode: targetMode, preferences: amount === undefined ? undefined : { budget: amount, currency } } });
+  }, [budget, currency, mode, run]);
+
+  useEffect(() => {
+    if (!captured || lastCaptureId.current === captured.id || (!health && !captured.result && !captured.error)) return;
+    lastCaptureId.current = captured.id;
+    stopRequest(); setCheckout(null); setCropImage(null); setProblem(null); setResponse(null); setView('find');
+    setSelection(captured.selection); setQuery(captured.selection.text ?? ''); setPreview(captured.selection.imageDataUrl ?? captured.selection.imageUrl ?? null); setShowEdit(false);
+    if (captured.error) { setProblem({ message: captured.error, retryable: false }); setShowEdit(true); }
+    else if (captured.needsCrop && captured.screenshotDataUrl) setCropImage(captured.screenshotDataUrl);
+    else if (captured.result) {
+      const result = captured.result;
+      const offer = result.offers.find(item => item.id === captured.offerId) ?? result.offers[0];
+      setResponse(result); setMode(result.mode); setSelectedOfferId(offer?.id ?? '');
+      setShowEdit(result.interpretation.needsClarification);
+      if (offer && (captured.intent === 'buy' || captured.intent === 'cart')) setCheckout({ offer, sessionId: result.sessionId, action: captured.intent, variant: captured.variant });
+    } else discover(captured.selection, modeInitialized.current ? mode : health?.defaultMode);
+  }, [captured, health, mode, discover, stopRequest]);
+
+  function reset() {
+    stopRequest(); setResponse(null); setProblem(null); setSelection({}); setQuery(''); setPreview(null); setInstruction(''); setShowEdit(false); setCheckout(null); setView('find'); setCropImage(null); previousRequest.current = null; void clearCapturedSelection();
+  }
+  async function capture() {
+    setCaptureBusy(true); setProblem(null);
+    try { setCaptured(await requestCapture()); }
+    catch (error) { setProblem({ message: error instanceof Error ? error.message : 'Capture failed. Try a description.', retryable: false }); }
+    finally { setCaptureBusy(false); }
+  }
+  function cropApplied(image: string) { setCropImage(null); setPreview(image); setQuery(''); setShowEdit(false); discover({ ...selection, text: undefined, imageDataUrl: image, imageUrl: undefined }); }
+  function changeMode(next: DiscoveryMode) { if (mode === next) return; modeInitialized.current = true; stopRequest(); setMode(next); setResponse(null); setCheckout(null); setProblem(null); previousRequest.current = null; setShowEdit(true); }
+  async function updateCart(path: string, body: unknown) {
+    if (cartMutation.current) return;
+    cartMutation.current = true; collectionVersion.current++; setMutating(true); setCollectionLoading(false); setCollectionError('');
+    try { const result = await apiRequest<{ items: CartItem[] }>(path, body, AbortSignal.timeout(10000)); setCart(result.items); }
+    catch (error) { setCollectionError(error instanceof Error ? error.message : 'The cart could not be updated.'); }
+    finally { cartMutation.current = false; setMutating(false); }
+  }
+  function openView(next: View) { setView(next); if (next !== 'find') void refreshCollections(); }
+  const selectedOffer = response?.offers.find(item => item.id === selectedOfferId) ?? response?.offers[0];
+  const hasFind = !!(response || preview || pending || selection.text);
+  const cartCount = cart.reduce((count, item) => count + item.quantity, 0);
+
+  return <div className={`needle-app ${isExtension ? 'extension-app' : 'preview-app'}`}>
+    <header className="app-header"><button className="wordmark" onClick={reset} aria-label="Needle home"><NeedleMark size={28} /><span>needle</span></button><button className="icon-button" onClick={() => setShowSettings(!showSettings)} aria-expanded={showSettings} aria-label="Settings"><Settings2 size={18} /></button></header>
+    <nav className="app-nav" aria-label="Shopping"><button aria-current={view === 'find' ? 'page' : undefined} onClick={() => openView('find')}><Search size={16} />Find</button><button aria-current={view === 'cart' ? 'page' : undefined} onClick={() => openView('cart')}><ShoppingCart size={16} />Cart{cartCount > 0 && <span className="count">{cartCount}</span>}</button><button aria-current={view === 'history' ? 'page' : undefined} onClick={() => openView('history')}><History size={16} />History</button></nav>
+    {showSettings && <section className="settings-panel" aria-label="Settings"><div className="setting-heading"><h2>Discovery</h2><span className={`connection ${serviceOffline ? 'offline' : ''}`}>{serviceOffline ? 'Offline' : health?.agentAvailable ? 'AI connected' : health ? 'Catalog search' : 'Connecting'}</span></div><div className="mode-switch" role="group" aria-label="Product source"><button aria-pressed={mode === 'sample'} onClick={() => changeMode('sample')}>Demo catalog</button><button aria-pressed={mode === 'live'} disabled={!health?.liveAvailable} onClick={() => changeMode('live')}>Coupang live</button></div><p>{health?.agentAvailable ? 'The agent identifies your selection. Catalog searches use Exa when no item matches.' : 'Add an API key in .env to identify images. Descriptions work with the local catalog now.'}</p><div className="budget-fields"><label>Budget<input type="number" min="1" value={budget} placeholder="No limit" onChange={event => setBudget(event.target.value)} /></label><label>Currency<select value={currency} onChange={event => setCurrency(event.target.value)}>{['KRW', 'USD', 'SGD', 'TWD', 'JPY', 'EUR', 'GBP'].map(code => <option key={code}>{code}</option>)}</select></label></div><p>Demo catalog with illustrative prices and web product references. Original sources appear in Product details; currencies are preserved.</p><button className="text-button" onClick={() => void refreshHealth()}><RefreshCw size={13} />Check connection</button></section>}
+    <main>
+      {serviceOffline && <div className="notice" role="alert"><Info size={16} /><div><p>Start the local service to continue.</p><button className="text-button" onClick={() => { void refreshHealth(); void refreshCollections(); }}>Reconnect</button></div></div>}
+      {toast && <div className="toast" role="status"><Check size={15} />{toast}</div>}
+      {view === 'find' && <>
+        {!hasFind && <section className="welcome"><div className="welcome-symbol"><NeedleMark size={42} /></div><h1>Shop what you see.</h1><p>Right-click an image or video. Needle finds the item, ready to buy or save.</p><div className="examples">{examples.map(example => <button key={example.name} onClick={() => { modeInitialized.current = true; setPreview(example.image); setQuery(example.query); discover({ text: example.query, pageTitle: 'Needle sample catalog' }, 'sample'); setMode('sample'); }}><img src={example.image} alt="" /><span>{example.name}</span></button>)}</div><span className="examples-caption">Try a find</span></section>}
+        {(hasFind || showEdit) && <div className="find-heading"><h1>{pending ? 'Finding your item' : response ? 'Your find' : 'Selected item'}</h1><button className="text-button" onClick={reset}><Plus size={14} />New find</button></div>}
+        {hasFind && <div className="inspiration">{preview && <ProductImage src={preview} alt="Your selected object" />}<div><span>Your selection</span><strong>{response?.interpretation.name || query || 'Image selection'}</strong><button className="text-button" onClick={() => setShowEdit(!showEdit)} aria-expanded={showEdit}>{showEdit ? 'Hide description' : 'Edit description'}</button></div>{preview && <button className="icon-button" onClick={() => setCropImage(preview)} aria-label="Crop selection"><Crop size={16} /></button>}</div>}
+        {(!hasFind || showEdit) && <form className="discovery-form" onSubmit={event => { event.preventDefault(); discover({ ...selection, text: query.trim() }); }}><label htmlFor="object-description">{hasFind ? 'Describe your selection' : 'Or describe an item'}</label><textarea ref={queryRef} id="object-description" rows={2} value={query} maxLength={2000} onChange={event => setQuery(event.target.value)} placeholder="A black podcast microphone…" /><div className="discovery-actions">{isExtension && <button type="button" className="secondary-button" disabled={captureBusy} onClick={() => void capture()}><ImagePlus size={15} />{captureBusy ? 'Capturing…' : 'Capture'}</button>}<button className="primary-button" type="submit" disabled={!!pending}><Search size={15} />Find item</button></div></form>}
+        {pending && <section className="search-progress" role="status"><span className="search-spinner" /><div><strong>{pending === '/refine' ? 'Looking for a better fit…' : health?.agentAvailable ? 'Identifying and searching…' : 'Searching the catalog…'}</strong><p>{elapsed < 20 ? 'Checking the closest matches' : 'Still searching. You can retry with a clearer description.'} · {elapsed}s</p></div><button className="icon-button" onClick={() => { stopRequest(); setProblem({ message: 'Search stopped.', retryable: true }); }} aria-label="Stop search"><X size={17} /></button></section>}
+        {problem && <div className="notice" role="alert"><Info size={16} /><div><p>{problem.message}</p>{problem.retryable && previousRequest.current && <button className="text-button" onClick={() => { if (previousRequest.current) void run(previousRequest.current); }}><RefreshCw size={13} />Try again</button>}</div></div>}
+        {response && <section className={`results ${pending ? 'results-pending' : ''}`} aria-label="Product recommendations" aria-busy={!!pending}>
+          {response.interpretation.needsClarification && <p className="clarification">{response.interpretation.clarification ?? 'Add a brand, model, or a clearer description.'}</p>}
+          {selectedOffer ? <ProductResult response={response} offer={selectedOffer} pending={!!pending} onSelect={id => { setSelectedOfferId(id); setCheckout(null); }} onCheckout={setCheckout} /> : !response.interpretation.needsClarification && <div className="empty-state"><Search size={26} /><h2>No close match</h2><p>{response.webSearch?.message ?? 'Try a clearer crop, a brand, or a model name.'}</p><button className="secondary-button" onClick={() => setShowEdit(true)}>Edit description</button></div>}
+          {response.warnings.length > 0 && <details className="search-notes"><summary>Search notes</summary>{response.warnings.map(warning => <p key={warning}>{warning}</p>)}</details>}
+          <form className="refine-form" onSubmit={event => { event.preventDefault(); if (instruction.trim() && !pending) void run({ path: '/refine', body: { sessionId: response.sessionId, instruction: instruction.trim() } }); }}><label htmlFor="refine-input">Refine your find</label><div className="refine-input-wrap"><input id="refine-input" placeholder="Similar, under KRW 50,000…" value={instruction} maxLength={1000} onChange={event => setInstruction(event.target.value)} disabled={!!pending} /><button type="submit" aria-label="Refine recommendations" disabled={!instruction.trim() || !!pending}><ArrowUp size={18} /></button></div></form>
+        </section>}
+      </>}
+      {view !== 'find' && <>
+        <div className="find-heading"><h1>{view === 'cart' ? 'Your cart' : 'Purchase history'}</h1><button className="icon-button" aria-label="Refresh saved items" onClick={() => void refreshCollections()} disabled={collectionLoading}><RefreshCw size={16} /></button></div>
+        {collectionError && <div className="notice" role="alert"><Info size={16} /><p>{collectionError}</p></div>}
+        {collectionLoading && <p className="loading-note" role="status">Loading saved items…</p>}
+        {view === 'cart' && (cart.length > 0 || (!collectionLoading && !collectionError)) && <Cart items={cart} busy={mutating} onUpdate={(path, body) => void updateCart(path, body)} onCheckout={setCheckout} onFind={() => setView('find')} />}
+        {view === 'history' && (orders.length > 0 || (!collectionLoading && !collectionError)) && <PurchaseHistory orders={orders} />}
+      </>}
+    </main>
+
+    {cropImage && <CropDialog image={cropImage} onApply={cropApplied} onClose={() => setCropImage(null)} />}
+    {checkout && <CheckoutDialog key={`${checkout.sessionId}:${checkout.offer.id}:${checkout.action}:${checkout.cartItemId ?? ''}`} {...checkout} onClose={() => setCheckout(null)} onComplete={order => { void refreshCollections(); if (!order) setToast('Added to cart'); }} />}
+  </div>;
+}
+

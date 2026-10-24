@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="520" viewBox="0 0 640 520" role="img" aria-label="Illustration of an adjustable desk lamp">
+<defs><linearGradient id="shade" x2="1" y2=".4"><stop stop-color="#8da5c3"/><stop offset=".45" stop-color="#526d91"/><stop offset="1" stop-color="#294767"/></linearGradient><linearGradient id="light" x2="0" y2="1"><stop stop-color="#f8f4d8" stop-opacity=".7"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+<rect width="640" height="520" fill="#f0f4f8"/>
+<path d="m345 223 159-8 55 207H273Z" fill="url(#light)"/>
+<ellipse cx="276" cy="445" rx="133" ry="16" fill="#bdcbd9" opacity=".45"/>
+<ellipse cx="276" cy="425" rx="102" ry="19" fill="#354e6e"/><path d="M174 420q100-30 204 0v7q-100 24-204 0Z" fill="url(#shade)"/>
+<path d="M275 414 202 287 339 146m-47 265-71-121 136-138" fill="none" stroke="#4c6687" stroke-width="11"/>
+<path d="m253 350-37-58m21 54-35-59" stroke="#afbdd0" stroke-width="4"/>
+<path d="m238 272 76-81m-63 91 77-82" stroke="#aebdce" stroke-width="4"/>
+<circle cx="211" cy="288" r="16" fill="#233e60"/><circle cx="211" cy="288" r="6" fill="#a8b9ce"/>
+<path d="m347 147 50 28" stroke="#355071" stroke-width="13"/>
+<g transform="rotate(21 420 191)"><path d="M391 133h52l47 95H343Z" fill="url(#shade)"/><ellipse cx="417" cy="228" rx="74" ry="17" fill="#c9d6e3"/><ellipse cx="417" cy="227" rx="61" ry="10" fill="#fff7d5"/><path d="M401 134v-16h31v16" fill="#385372"/></g>
+</svg>

@@ -1,0 +1,49 @@
+{
+  "name": "needle-coupang",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "A browser shopping companion for finding products on Coupang.",
+  "scripts": {
+    "dev": "concurrently -k -n api,panel \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:panel": "vite --host 127.0.0.1",
+    "start": "tsx server/index.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build && esbuild src/extension/background.ts --bundle --format=esm --target=chrome116 --outfile=dist/extension/background.js && esbuild src/extension/content.ts --bundle --format=iife --target=chrome116 --outfile=dist/extension/content.js && node scripts/check-extension.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:coverage": "tsx scripts/check-coverage.ts"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^4.0.102",
+    "ai": "^7.0.153",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "lucide-react": "^1.61.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/supertest": "^7.2.1",
+    "@vitejs/plugin-react": "^6.1.2",
+    "concurrently": "^10.0.6",
+    "esbuild": "^0.28.2",
+    "supertest": "^7.3.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}
