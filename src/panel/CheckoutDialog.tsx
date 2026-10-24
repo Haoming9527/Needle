@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, ExternalLink, X } from 'lucide-react';
 import type { DemoOrder, DemoOrderRequest, Offer } from '../../shared/types';
+import { offerSource } from '../../shared/offer-source';
 import { apiRequest } from './api';
 import { formatMoney, ProductImage } from './ui';
 
 export function assetUrl(url: string | null | undefined) { return url?.startsWith('/assets/') ? url.slice(1) : url; }
-export interface CheckoutSelection { offer: Offer; sessionId: string; action: 'buy' | 'cart'; cartItemId?: string; variant?: string | null; quantity?: number }
+export interface CheckoutSelection { offer: Offer; sessionId: string; action: 'buy' | 'cart'; cartItemId?: string; variant?: string | null; quantity?: number; fallbackSrc?: string | null }
 
-export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: initialVariant, quantity = 1, onClose, onComplete }: CheckoutSelection & { onClose: () => void; onComplete: (order?: DemoOrder) => void }) {
+export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: initialVariant, quantity = 1, fallbackSrc, onClose, onComplete }: CheckoutSelection & { onClose: () => void; onComplete: (order?: DemoOrder) => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [variant, setVariant] = useState(initialVariant ?? (offer.variants.length === 1 ? offer.variants[0] : ''));
   const [confirmationId] = useState(() => crypto.randomUUID());
@@ -17,6 +18,7 @@ export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: 
   const [error, setError] = useState('');
   const [order, setOrder] = useState<DemoOrder | null>(null);
   const isCart = action === 'cart';
+  const source = offerSource(offer);
 
   useEffect(() => {
     const node = dialog.current; node?.showModal();
@@ -46,14 +48,14 @@ export function CheckoutDialog({ offer, sessionId, action, cartItemId, variant: 
     <header className="sheet-header"><h2 id="checkout-title">{order ? 'Simulated purchase saved' : isCart ? 'Add to cart' : 'Review purchase'}</h2><button className="icon-button" aria-label="Close checkout" disabled={busy} onClick={onClose}><X size={19} /></button></header>
     {order ? <div className="receipt">
       <span className="receipt-check"><Check size={26} /></span><p className="receipt-lead">Saved locally. No payment taken and no order sent.</p>
-      <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} alt={order.title} /><div><h3>{order.title}</h3><p>{order.variant}{quantity > 1 ? ` · ${quantity} items` : ''}</p><strong>{formatMoney(order.price == null ? null : order.price * (order.quantity ?? quantity), order.currency)}</strong></div></div>
+      <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} fallbackSrc={fallbackSrc} alt={order.title} /><div><h3>{order.title}</h3><p>{order.variant}{quantity > 1 ? ` · ${quantity} items` : ''}</p><strong>{formatMoney(order.price == null ? null : order.price * (order.quantity ?? quantity), order.currency)}</strong></div></div>
       <dl className="checkout-facts"><div><dt>Reference</dt><dd>{order.id}</dd></div><div><dt>Status</dt><dd>Simulated</dd></div></dl>
       <button className="primary-button full-width" onClick={onClose}>Done</button>
     </div> : <>
-      <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} alt={offer.title} /><div><h3>{offer.title}</h3><strong>{formatMoney(offer.price == null ? null : offer.price * quantity, offer.currency)}</strong>{quantity > 1 && <p>{quantity} × {formatMoney(offer.price, offer.currency)}</p>}</div></div>
+      <div className="checkout-product"><ProductImage src={assetUrl(offer.imageUrl)} fallbackSrc={fallbackSrc} alt={offer.title} /><div><h3>{offer.title}</h3><strong>{formatMoney(offer.price == null ? null : offer.price * quantity, offer.currency)}</strong>{quantity > 1 && <p>{quantity} × {formatMoney(offer.price, offer.currency)}</p>}</div></div>
       {offer.variants.length > 0 && <label className="field-label">Variant<select value={variant} disabled={!!cartItemId || busy} onChange={event => setVariant(event.target.value)}><option value="" disabled>Choose a variant</option>{offer.variants.map(option => <option key={option} value={option}>{option}</option>)}</select></label>}
-      {!isCart && <dl className="checkout-facts"><div><dt>Merchant</dt><dd>{offer.dataOrigin === 'sample' ? 'Demo storefront' : 'Coupang listing'}</dd></div><div><dt>Shipping</dt><dd>{offer.shipping ?? 'Unknown'}</dd></div><div><dt>Availability</dt><dd>{offer.availability ?? 'Unknown'}</dd></div><div><dt>Returns</dt><dd>{offer.returns ?? 'Unknown'}</dd></div></dl>}
-      {offer.sourceUrl && <a className="source-link" href={offer.sourceUrl} target="_blank" rel="noreferrer">View on Coupang <ExternalLink size={13} /></a>}
+      {!isCart && <dl className="checkout-facts"><div><dt>Source</dt><dd>{source.label}</dd></div><div><dt>Shipping</dt><dd>{offer.shipping ?? 'Unknown'}</dd></div><div><dt>Availability</dt><dd>{offer.availability ?? 'Unknown'}</dd></div><div><dt>Returns</dt><dd>{offer.returns ?? 'Unknown'}</dd></div></dl>}
+      {source.url && <a className="source-link" href={source.url} target="_blank" rel="noreferrer">View product <ExternalLink size={13} /></a>}
       {error && <p className="inline-error" role="alert">{error}</p>}
       <button className="primary-button full-width confirm-purchase" onClick={() => void confirm()} disabled={busy || (offer.variants.length > 0 && !variant)}>{busy ? <><span className="button-spinner" /> Saving…</> : isCart ? 'Add to cart' : 'Confirm simulated purchase'}</button>
     </>}

@@ -4,7 +4,7 @@ import { ApiError } from './errors.js';
 import { hasIdentifier, matchesModel, normalize } from './evidence.js';
 import type { ProductProvider, ProviderResult } from './provider.js';
 
-const stopWords = new Set(['a', 'an', 'the', 'find', 'this', 'that', 'with', 'for', 'on', 'me', 'some', 'something', 'similar', 'same', 'please', 'coupang', 'of', 'to', 'and']);
+const stopWords = new Set(['a', 'an', 'the', 'find', 'this', 'that', 'with', 'for', 'on', 'me', 'some', 'something', 'similar', 'same', 'please', 'of', 'to', 'and']);
 function tokens(value: string): string[] { return normalize(value).split(' ').filter(token => token.length > 1 && !stopWords.has(token)); }
 function relevance(product: SampleProduct, text: string): number {
   const words = tokens(text);
@@ -64,7 +64,7 @@ export class SampleProvider implements ProductProvider {
         ...(product.referenceUrl ? { referenceUrl: product.referenceUrl } : {}),
         ...(product.priceIsIllustrative !== undefined ? { priceIsIllustrative: product.priceIsIllustrative } : {}),
         match: exact ? 'exact' : sameModel ? 'likely' : 'similar',
-        matchEvidence: exact ? `Your description names ${product.brand} ${product.model}, matching this sample record. This does not verify a live Coupang listing.` : 'A related item from the sample catalog. Exact identity has not been verified.',
+        matchEvidence: exact ? `Your description names ${product.brand} ${product.model}, matching this sample record. This does not verify a current retailer listing.` : 'A related item from the sample catalog. Exact identity has not been verified.',
         price: product.price,
         currency: product.currency,
         observedAt: product.observedAt ?? '2026-10-25T00:00:00.000Z',

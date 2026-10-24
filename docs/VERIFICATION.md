@@ -1,6 +1,27 @@
-# Verification record — v0.3
+# Verification record
 
 Checked on 25 October 2026 (Asia/Singapore).
+
+## v0.4.1 image fallback
+
+- Missing or broken result photos now use the buyer's selected image/crop, including alternatives and checkout. The popup already uses the selected crop.
+- Browser checks against the actual ProductImage component verified missing and broken photos use the selected image, changing the selection updates both, and a working product image remains unchanged. Failed primary and fallback images leave a quiet empty space with no error text or retry loop.
+- TypeScript and production extension build passed. No server, database, or image-retention behavior changed.
+
+## v0.4 scope
+
+Needle now searches across retailers. Catalog misses go directly to general Exa search; direct web mode also has no retailer-domain restriction. Product source labels use the originating website, seeded products use Needle catalog, and currencies remain as provided. The existing local database and credentials are preserved.
+
+- All 121 tests in twelve files passed, including unrestricted web retrieval, direct fallback, public source validation, persistent prices, source labels, and INR/CHF/KWD currency cases.
+- TypeScript, the production build, and extension-package validation passed for version 0.4.0.
+- An authenticated direct-web search for “Fellow Stagg EKG electric gooseneck kettle” returned three source-backed products from Amazon and Costco in 19.7 seconds. Two prices remained unknown; one supported USD 179.95 price was retained. No prepared products were substituted in direct web mode.
+- Existing seeded and web-derived catalog records, cart entries, and receipts were retained; no database migration or credential change was required.
+- The browser preview displayed the saved mandolin with `sweetwater.com`, an Amazon alternative, and unchanged KRW/USD prices. Screenshot: `.local/screenshots/needle-retailers-v4.jpg`.
+- The installed Chrome extension needs reloading and the target page needs refreshing. Native Chrome/X smoke testing remains for the user; the earlier fixture tests do not establish live X verification.
+
+The v0.3 checks below describe the earlier retailer-specific version and are retained as historical evidence.
+
+## v0.3 record
 
 ## Automated checks
 

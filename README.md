@@ -1,8 +1,8 @@
 # Needle
 
-**See it anywhere. Find it on Coupang.**
+**See it anywhere. Find it with Needle.**
 
-A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. This version presents a **Coupang demo storefront** backed by 18 seed products plus product references discovered with Exa. It does not place merchant orders.
+A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. Needle searches across stores, using 18 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
 
 ## Run locally
 
@@ -42,9 +42,9 @@ With a key, the agent interprets the selected image, calls a SQLite catalog-sear
 
 ### When there is no catalog match
 
-Needle first searches Coupang through Exa. If no matching listing is indexed, it searches the wider web for real product references and adds those products to the local demo catalog. This reuses the identified object within the same 45-second request. Missing credentials or failed services produce a recovery message.
+Needle searches the wider web directly through Exa for real product references and adds those products to the local demo catalog. There is no preferred retailer or domain restriction. This reuses the identified object within the same 45-second request. Missing credentials or failed services produce a recovery message.
 
-Web-derived demo items retain the original reference in **Product details → Original product source**; they are not verified Coupang inventory. A verified source price keeps its currency. Otherwise, the agent assigns an illustrative KRW price, marked in Product details. SQLite saves the product, price, and provenance so later searches use the same record. The separate **Coupang live** mode stays restricted to verified Coupang source URLs and never substitutes demo records.
+Web-derived demo items show their source website and retain the original reference in **Product details → Original product source**. A verified source price keeps its currency. Otherwise, the agent assigns an illustrative price, marked in Product details. SQLite saves the product, price, and provenance so later searches use the same record. The separate **Web search** mode searches stores directly and keeps unverified prices unknown; it never substitutes demo records.
 
 ## Load or update the extension
 
@@ -54,14 +54,16 @@ npm run build
 
 1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
 2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.3.0**, then refresh the webpage. This first refresh removes the old 0.2 content script.
+3. Check that Chrome shows **version 0.4.1**, then refresh the webpage to remove the previous content script.
 4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
 5. Needle captures a small region around the cursor and automatically searches. Its two shopping actions become available when a result and any required variant are ready.
 6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
 
-Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find on Coupang with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. Ambiguous selections can be cropped or described in the panel.
+Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. Ambiguous selections can be cropped or described in the panel.
 
-If Chrome still shows only its normal menu, verify version 0.3.0, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+If Chrome still shows only its normal menu, verify version 0.4.1, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+
+When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
 
 ### Browser permission
 
@@ -73,7 +75,7 @@ The popup is visible immediately, then briefly hidden during capture. Only a reg
 
 `.local/needle.sqlite` is created and seeded automatically. It stores seeded and web-derived catalog records, search interpretations for one hour, cart items, and purchase receipts. Raw image captures are excluded. Selected source-page metadata is retained with its search; general browsing history is not collected.
 
-The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. The UI labels these as Coupang products within the demo; Settings explains the dataset and collapsed evidence retains provenance. Edit `server/catalog.ts` to change fixtures; startup upserts the seeded records.
+The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Settings explains the dataset and collapsed evidence retains provenance. Edit `server/catalog.ts` to change fixtures; startup upserts the seeded records.
 
 The agent uses AI SDK 7 `ToolLoopAgent` with a bounded read-only catalog-search tool. It cannot place orders or change the cart. Catalog output IDs must come from tool evidence. The web fallback validates product names against retrieved excerpts, keeps original source links, and saves any illustrative price before use. Checkout is a separate explicit user action. Repeated confirmation IDs return one receipt. Cart checkout and removal happen in one SQLite transaction.
 
@@ -101,6 +103,6 @@ npm run build
 
 See [verification](docs/VERIFICATION.md), [requirements](docs/REQUIREMENTS.md), and the [presentation guide](docs/DEMO.md).
 
-Optional live Coupang retrieval uses Exa and source-evidence checks; run `npm run check:coverage` before presenting it. It never silently switches to fixtures. Live inventory and real Coupang checkout are outside this demo.
+Optional direct web retrieval uses Exa and source-evidence checks; run `npm run check:coverage` before presenting it. It never silently switches to fixtures. Inventory verification and real merchant checkout are outside this demo.
 
 Technical references: [AI SDK agents](https://ai-sdk.dev/docs/agents/building-agents), [Chrome screenshot permission](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-captureVisibleTab), [Node SQLite](https://nodejs.org/api/sqlite.html).

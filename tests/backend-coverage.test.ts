@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { coverageCases, hasCoverageEvidence } from '../server/coverage.js';
 
-const source = (title: string, text = title) => ({ title, text, url: 'https://www.coupang.com/vp/products/123' });
+const source = (title: string, text = title) => ({ title, text, url: 'https://store.example.com/products/123' });
 
 describe('live-discovery coverage gate', () => {
   it.each([
@@ -27,9 +27,11 @@ describe('live-discovery coverage gate', () => {
     expect(hasCoverageEvidence(source(String(title)), coverageCases[Number(index)])).toBe(false);
   });
 
-  it('requires both usable content and a Coupang product page', () => {
+  it('requires usable content and a public HTTPS source without retailer restrictions', () => {
     expect(hasCoverageEvidence(source('LEGO 10329', ''), coverageCases[4])).toBe(false);
-    expect(hasCoverageEvidence({ ...source('LEGO 10329'), url: 'https://example.com/vp/products/123' }, coverageCases[4])).toBe(false);
+    expect(hasCoverageEvidence({ ...source('LEGO 10329'), url: 'https://another-store.example/items/123' }, coverageCases[4])).toBe(true);
+    expect(hasCoverageEvidence({ ...source('LEGO 10329'), url: 'https://127.0.0.1/product/123' }, coverageCases[4])).toBe(false);
+    expect(hasCoverageEvidence({ ...source('LEGO 10329'), url: 'http://store.example.com/product/123' }, coverageCases[4])).toBe(false);
     expect(hasCoverageEvidence(source('Unbranded 10329'), coverageCases[4])).toBe(false);
   });
 });

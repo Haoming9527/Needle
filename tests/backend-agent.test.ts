@@ -34,7 +34,7 @@ describe('Vercel AI SDK catalog agent', () => {
     expect(toolBody.tools.some((tool: { name: string }) => tool.name === 'searchCatalog')).toBe(true);
     const answerBody = JSON.parse(mock.mock.calls[2][1]?.body as string);
     expect(JSON.stringify(answerBody.input)).toContain('function_call_output');
-    expect(result.warnings.join(' ')).toContain('not verified Coupang listings');
+    expect(result.warnings.join(' ')).toContain('not verified retailer listings');
     expect(call).toBe(3);
   });
   it('does not silently fall back to catalog matching when configured AI fails', async () => {

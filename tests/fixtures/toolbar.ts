@@ -86,7 +86,7 @@ if (existingChrome?.runtime?.id) {
   Object.defineProperty(globalThis, 'chrome', { configurable: true, value: {
     ...existingChrome,
     runtime: {
-      id: runtimeId, getManifest: () => ({ version: '0.3.0-fixture' }), sendMessage,
+      id: runtimeId, getManifest: () => ({ version: '0.4.0-fixture' }), sendMessage,
       onMessage: { addListener: (listener: Listener) => listeners.add(listener), removeListener: (listener: Listener) => listeners.delete(listener) },
     },
   } });

@@ -7,11 +7,12 @@ export function NeedleMark({ size = 30 }: { size?: number }) {
 export function formatMoney(price: number | null | undefined, currency: string | null | undefined) {
   if (price == null || !currency) return 'Price unavailable';
   try {
-    return `${currency.toUpperCase()} ${new Intl.NumberFormat('en-US', { style: 'currency', currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: ['KRW', 'JPY'].includes(currency.toUpperCase()) ? 0 : 2 }).format(price)}`;
+    return `${currency.toUpperCase()} ${new Intl.NumberFormat('en-US', { style: 'currency', currency, currencyDisplay: 'narrowSymbol' }).format(price)}`;
   } catch { return `${currency} ${price.toLocaleString()}`; }
 }
 
-export function ProductImage({ src, alt, className = '', style }: { src?: string | null; alt: string; className?: string; style?: CSSProperties }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  return <div className={`product-image ${className}`} style={style}>{src && src !== failedUrl ? <img src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedUrl(src)} /> : <span className="image-placeholder">Image unavailable</span>}</div>;
+export function ProductImage({ src, fallbackSrc, alt, className = '', style }: { src?: string | null; fallbackSrc?: string | null; alt: string; className?: string; style?: CSSProperties }) {
+  const [failedUrls, setFailedUrls] = useState(() => new Set<string>());
+  const imageSrc = [src, fallbackSrc].find(url => !!url && !failedUrls.has(url));
+  return <div className={`product-image ${className}`} style={style} aria-hidden={!imageSrc || undefined}>{imageSrc ? <img key={imageSrc} src={imageSrc} alt={imageSrc === src ? alt : alt ? 'Your selected image' : ''} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailedUrls(previous => new Set(previous).add(imageSrc))} /> : <span className="image-placeholder" />}</div>;
 }

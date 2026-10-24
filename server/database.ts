@@ -141,7 +141,7 @@ export class NeedleDatabase {
         createdAt: new Date().toISOString(), status: 'simulated', title: offer.title, variant,
         price: offer.price, currency: offer.currency, dataOrigin: offer.dataOrigin,
         quantity: cart?.quantity ?? request.quantity ?? 1, imageUrl: offer.imageUrl,
-        message: 'No payment taken. This local purchase is simulated; no order was sent to Coupang.',
+        message: 'No payment taken. This local purchase is simulated; no order was sent to a retailer.',
       };
       this.db.prepare('INSERT INTO orders(confirmation_id,fingerprint,created_at,data) VALUES (?,?,?,?)').run(request.confirmationId, fingerprint(request), order.createdAt, JSON.stringify(order));
       if (cart) this.db.prepare('DELETE FROM cart WHERE id = ?').run(cart.id);

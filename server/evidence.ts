@@ -1,13 +1,3 @@
-/** Only real product-detail links can appear as live offers. Search/category pages are not offers. */
-export function isCoupangProductUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' && !url.username && !url.password && !url.port
-      && ['www.coupang.com', 'coupang.com', 'm.coupang.com', 'www.tw.coupang.com', 'tw.coupang.com'].includes(url.hostname)
-      && /^\/(?:vp\/)?products\/\d+\/?$/.test(url.pathname);
-  } catch { return false; }
-}
-
 export function publicImageUrl(value: string | undefined | null): string | null {
   if (!value) return null;
   try {
@@ -71,7 +61,8 @@ export function verifiedPrice(source: string, amount: number | null, currency: s
   const pattern = currencyPatterns[code] ?? new RegExp(`\\b${code}\\b`, 'i');
   if (!pattern.test(evidence)) return { price: null, currency: null };
   // Currency must sit directly beside the amount, not elsewhere in a sentence containing unrelated digits.
-  const numberPattern = '(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d{1,2})?';
+  const fractionDigits = Math.max(2, new Intl.NumberFormat('en', { style: 'currency', currency: code }).resolvedOptions().maximumFractionDigits ?? 2);
+  const numberPattern = `(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d{1,${fractionDigits}})?`;
   const adjacent = new RegExp(`(?:${pattern.source})\\s*(${numberPattern})(?![\\d,.])|(?<![\\d,.])(${numberPattern})\\s*(?:${pattern.source})`, 'gi');
   const values = [...evidence.matchAll(adjacent)].map(match => Number((match[1] ?? match[2]).replace(/,/g, '')));
   if (!values.includes(amount)) return { price: null, currency: null };

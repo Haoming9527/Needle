@@ -8,12 +8,12 @@ const identified = {
   queries: ['Sony WH-1000XM5 headphones', '소니 WH-1000XM5 헤드폰'], needsClarification: false, clarification: null as string | null,
 };
 const source = {
-  title: 'Sony WH-1000XM5 headphones | Coupang', url: 'https://www.coupang.com/vp/products/123?itemId=456',
+  title: 'Sony WH-1000XM5 headphones | Audio Store', url: 'https://audio.example.com/products/sony-wh-1000xm5?variant=black',
   text: 'Sony WH-1000XM5 headphones. Price KRW 329,000. Black. Free shipping. In stock.',
   image: 'https://images.example.com/sony.jpg',
 };
 const extracted = {
-  sourceIndex: 0, description: 'Wireless headphones', price: 329000, currency: 'KRW', priceEvidence: 'KRW 329,000',
+  sourceIndex: 0, title: 'Sony WH-1000XM5 headphones', productEvidence: 'Sony WH-1000XM5 headphones', description: 'Wireless headphones', price: 329000, currency: 'KRW', priceEvidence: 'KRW 329,000',
   shipping: 'Free shipping', availability: 'In stock', returns: null as string | null, variants: ['Black'], reason: 'The listing names the requested model.', differences: [], identityEvidence: 'Sony WH-1000XM5 headphones',
 };
 
@@ -38,11 +38,12 @@ describe('live workflow with mocked upstream responses', () => {
     const item = await provider.identify({ text: 'Sony WH-1000XM5 headphones' }, signal);
     const results = await provider.search(item, {}, signal);
     expect(results.offers).toHaveLength(1);
-    expect(results.offers[0]).toMatchObject({ match: 'exact', price: 329000, currency: 'KRW', dataOrigin: 'retrieved', shipping: 'Free shipping' });
+    expect(results.offers[0]).toMatchObject({ title: extracted.title, sourceUrl: source.url, match: 'exact', price: 329000, currency: 'KRW', dataOrigin: 'retrieved', shipping: 'Free shipping' });
     const searches = mock.mock.calls.filter(([url]) => String(url).includes('api.exa.ai'));
     expect(searches).toHaveLength(2);
     const payload = JSON.parse(searches[0][1]?.body as string);
-    expect(payload.includeDomains).toEqual(['coupang.com', 'www.tw.coupang.com']);
+    expect(payload.includeDomains).toBeUndefined();
+    expect(payload.query).toBe('Sony WH-1000XM5 headphones product buy');
     expect(results.warnings.join(' ')).toContain('out of date');
   });
 
@@ -73,13 +74,37 @@ describe('live workflow with mocked upstream responses', () => {
     expect(results.offers[0].match).toBe('similar');
   });
 
-  it('does not accept an upstream search result on another domain or a search page', async () => {
+  it('accepts arbitrary public retailers but rejects private, unsafe, or credential-bearing URLs', async () => {
     upstream({ sources: [
-      { ...source, url: 'https://www.coupang.com.evil.example/vp/products/123' },
-      { ...source, url: 'https://www.coupang.com/np/search?q=sony' },
+      source,
+      { ...source, url: 'http://audio.example.com/products/sony' },
+      { ...source, url: 'https://user:password@audio.example.com/products/sony' },
+      { ...source, url: 'https://127.0.0.1/product/123' },
+      { ...source, url: 'https://10.0.0.1/product/123' },
+      { ...source, url: 'https://store.internal/product/123' },
+      { ...source, url: 'javascript:alert(1)' },
     ] });
     const results = await exaSearch('Sony headphones', config, new AbortController().signal);
-    expect(results).toEqual([]);
+    expect(results.map(result => result.url)).toEqual([source.url]);
+  });
+
+  it('rejects invented products or evidence even when a public search page is retrieved', async () => {
+    upstream({ offers: [
+      { ...extracted, title: 'Imaginary Special Headphones' },
+      { ...extracted, productEvidence: 'Sony WH-1000XM5 headphones in a quotation the source never supplied' },
+    ] });
+    const provider = new LiveProvider(config);
+    const signal = new AbortController().signal;
+    const item = await provider.identify({ text: 'Sony WH-1000XM5 headphones' }, signal);
+    expect((await provider.search(item, {}, signal)).offers).toEqual([]);
+  });
+
+  it('keeps source prices in an arbitrary explicit currency without conversion', async () => {
+    upstream({ sources: [{ ...source, text: 'Sony WH-1000XM5 headphones. Price CHF 299.90. Black.' }], offers: [{ ...extracted, price: 299.9, currency: 'CHF', priceEvidence: 'CHF 299.90' }] });
+    const provider = new LiveProvider(config);
+    const signal = new AbortController().signal;
+    const item = await provider.identify({ text: 'Sony WH-1000XM5 headphones' }, signal);
+    expect((await provider.search(item, {}, signal)).offers[0]).toMatchObject({ price: 299.9, currency: 'CHF', dataOrigin: 'retrieved' });
   });
 
   it('keeps an unresolved multi-object selection out of product search', async () => {

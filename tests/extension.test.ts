@@ -31,7 +31,7 @@ describe('extension context capture', () => {
   it('registers a context menu only on ordinary webpages', async () => {
     api.runtime.onInstalled.emit();
     await vi.waitFor(() => expect(api.contextMenus.create).toHaveBeenCalled());
-    expect(api.contextMenus.create.mock.calls[0][0]).toMatchObject({ title: 'Find on Coupang with Needle', documentUrlPatterns: ['http://*/*', 'https://*/*'] });
+    expect(api.contextMenus.create.mock.calls[0][0]).toMatchObject({ title: 'Find with Needle', documentUrlPatterns: ['http://*/*', 'https://*/*'] });
   });
   it('reattaches the popup to existing HTTP(S) pages when the extension is loaded', async () => {
     api.tabs.query.mockResolvedValue([tab, { ...tab, id: 13, url: 'chrome://extensions/' }]);

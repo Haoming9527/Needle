@@ -1,4 +1,4 @@
-/** These are deliberately illustrative records, not scraped Coupang listings or current commercial offers. */
+/** These are deliberately illustrative records, not scraped retailer listings or current commercial offers. */
 export interface SampleProduct {
   id: string;
   title: string;
@@ -44,4 +44,4 @@ export const sampleCatalog: SampleProduct[] = [
   { id: 'sample-asus-vivobook', title: 'ASUS Vivobook 15 laptop', brand: 'ASUS', model: 'Vivobook 15', productType: 'laptop', color: 'Silver', attributes: ['15-inch display', '16GB memory', '512GB storage'], tags: ['laptop', 'notebook', 'computer', '노트북', 'budget', 'affordable'], price: 649000, currency: 'KRW', variants: ['Silver · 16GB / 512GB'], imageUrl: '/assets/laptop.svg' },
 ];
 
-export const SAMPLE_NOTICE = 'Sample catalog: product descriptions, illustrations, prices, and variants are prepared examples. These are not verified Coupang listings, current prices, or live availability.';
+export const SAMPLE_NOTICE = 'Sample catalog: product descriptions, illustrations, prices, and variants are prepared examples. These are not verified retailer listings, current prices, or live availability.';

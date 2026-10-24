@@ -1,9 +1,9 @@
 {
-  "name": "needle-coupang",
-  "version": "0.3.0",
+  "name": "needle-shopping",
+  "version": "0.4.1",
   "private": true,
   "type": "module",
-  "description": "A browser shopping companion for finding products on Coupang.",
+  "description": "A browser shopping companion for finding products across stores.",
   "scripts": {
     "dev": "concurrently -k -n api,panel \"tsx watch server/index.ts\" \"vite --host 127.0.0.1\"",
     "dev:api": "tsx watch server/index.ts",

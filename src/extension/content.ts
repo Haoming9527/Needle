@@ -1,4 +1,5 @@
 import type { Offer, SearchResponse } from '../../shared/types';
+import { offerSource } from '../../shared/offer-source';
 import { mediaCrop } from './geometry';
 import { targetAt, targetGeometry, targetText, type ShoppingTarget } from './target';
 
@@ -57,7 +58,7 @@ function renderOffer(popup: Popup): void {
   popup.buy.hidden = false; popup.cart.hidden = false; popup.find.hidden = true;
   popup.title.textContent = offer.title;
   popup.price.textContent = formatPrice(offer);
-  popup.status.textContent = `${offer.match === 'exact' ? 'Exact match' : offer.match === 'likely' ? 'Likely match' : 'Similar alternative'} · ${offer.dataOrigin === 'sample' ? 'Demo catalog · illustrative terms' : 'Retrieved listing'}`;
+  popup.status.textContent = `${offer.match === 'exact' ? 'Exact match' : offer.match === 'likely' ? 'Likely match' : 'Similar alternative'} · ${offerSource(offer).label}`;
   if (offer.variants.length > 1) {
     const placeholder = node('option', 'Choose a variant'); placeholder.value = ''; popup.variants.append(placeholder);
   }
