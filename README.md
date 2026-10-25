@@ -22,7 +22,9 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 
 ---
 
-**[▶ Watch the promo video](#meet-needle-in-action)**
+## Meet Needle in action
+
+https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
 
 ## Shopping starts with what catches your eye
 
@@ -180,6 +182,3 @@ Our idea: make AI the primary shopping interface, moving discovery from search b
 
 </div>
 
-## Meet Needle in action
-
-https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
