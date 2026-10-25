@@ -34,8 +34,17 @@ export async function identifyWithAI(config: ServerConfig, selection: Selection,
     cursorFocus: selection.focus ? { ...selection.focus, coordinateSystem: 'normalized 0..1 from the image top-left', marked: !!selection.annotatedImageDataUrl } : null,
     clarificationConversation: selection.clarifications ?? [],
   }) }];
-  const image = selection.annotatedImageDataUrl ?? selection.imageDataUrl ?? publicImageUrl(selection.imageUrl);
-  if (image) content.push({ type: 'file', mediaType: 'image', data: image });
+  const image = selection.imageDataUrl ?? selection.annotatedImageDataUrl ?? publicImageUrl(selection.imageUrl);
+  if (image) {
+    content.push({ type: 'text', text: 'Primary visual evidence: the unmarked crop. Inspect this image for product details and manufacturer evidence at cursorFocus.' });
+    content.push({ type: 'file', mediaType: 'image', data: image });
+  }
+  if (selection.imageDataUrl && selection.annotatedImageDataUrl && selection.annotatedImageDataUrl !== selection.imageDataUrl) {
+    // A cursor ring can hide the logo the shopper clicked. Keep the clean pixels
+    // as primary evidence; use the marked copy only to locate that same point.
+    content.push({ type: 'text', text: 'Secondary location reference: the same crop with a cursor marker. The marker may cover a logo or other product detail; read those details from the first, unmarked crop. This is not a different object.' });
+    content.push({ type: 'file', mediaType: 'image', data: selection.annotatedImageDataUrl });
+  }
   if (!selection.text?.trim() && !image) throw new ApiError(422, 'SELECTION_REQUIRED', 'Select an image or describe the object you want.');
   try {
     const { output } = await generateText({

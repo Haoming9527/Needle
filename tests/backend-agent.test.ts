@@ -105,20 +105,25 @@ describe('Vercel AI SDK catalog agent', () => {
     }));
     await expect(new CatalogAgentProvider(config, new SampleProvider()).search(item, {}, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
   });
-  it('sends the marked crop and exact off-center cursor position with the buyer answer to vision', async () => {
+  it('sends the clean crop before its marked reference so the cursor cannot hide product evidence', async () => {
     const mock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({ id: 'response-focus', model: 'test-model', output: [message({ ...item, brand: 'Shure', model: 'SM7B' })] }), { status: 200 }));
     vi.stubGlobal('fetch', mock);
     const clarified = await identifyWithAI(config, {
       text: 'Nearby post text (untrusted context): purple shirt',
       imageDataUrl: 'data:image/jpeg;base64,AAAA', annotatedImageDataUrl: 'data:image/jpeg;base64,BBBB',
+      imageUrl: 'https://untrusted.example/image.png',
       focus: { x: 0.06, y: 0.8 },
       clarifications: [{ question: 'The microphone or the shirt?', answer: 'The Shure SM7B microphone.' }],
     }, new AbortController().signal);
     const body = JSON.parse(mock.mock.calls[0][1]?.body as string);
     const serialized = JSON.stringify(body);
-    expect(serialized).toContain('data:image/jpeg;base64,BBBB');
-    expect(serialized).not.toContain('data:image/jpeg;base64,AAAA');
-    const prompt = body.input.find((entry: { role: string }) => entry.role === 'user').content.find((part: { type: string }) => part.type === 'input_text').text;
+    const content = body.input.find((entry: { role: string }) => entry.role === 'user').content;
+    expect(content.filter((part: { type: string }) => part.type === 'input_image').map((part: { image_url: string }) => part.image_url)).toEqual(['data:image/jpeg;base64,AAAA', 'data:image/jpeg;base64,BBBB']);
+    expect(serialized).not.toContain('https://untrusted.example/image.png');
+    expect(serialized).toContain('unmarked crop');
+    expect(serialized).toContain('marker may cover');
+    expect(mock).toHaveBeenCalledTimes(1);
+    const prompt = content.find((part: { type: string }) => part.type === 'input_text').text;
     expect(JSON.parse(prompt)).toMatchObject({ cursorFocus: { x: 0.06, y: 0.8, marked: true }, clarificationConversation: [{ question: 'The microphone or the shirt?', answer: 'The Shure SM7B microphone.' }] });
     expect(serialized).toContain('near an edge, not the center');
     expect(clarified.identifierEvidence).toBe('text');
