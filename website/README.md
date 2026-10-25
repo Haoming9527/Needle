@@ -1,6 +1,6 @@
 # Needle public site
 
-The public My finds and Seller studio experience, matching the supplied reference site. First-time visitors enter the quick tour; the introduction video and replay links are removed.
+The public My finds and Seller studio showcase. First-time visitors enter the quick tour, and a compact animation demonstrates the extension's right-click flow. The website is separate from the repository README's playable promo video.
 
 ## Work locally
 
@@ -14,7 +14,7 @@ npm run preview:site
 
 The development site uses `http://127.0.0.1:5180`. Production preview uses `http://127.0.0.1:4180`. Build output is `dist/website/`, separate from the extension's `dist/extension/`.
 
-The site is a static React application. Saved finds, language, and tour completion use browser-local state; seller metrics and creator matches remain the reference's labelled example data. It does not connect to the extension's local API or perform Google sign-in.
+The site is a static React application. Saved finds, language, and tour completion use browser-local state; seller metrics and creator matches are labelled example data. It does not connect to the extension's local API or perform Google sign-in.
 
 Product, creator, and thumbnail images and fonts live in `public/assets/`. Asset URLs are relative so the same build works at the GitHub Pages project path `/Needle/`.
 
@@ -28,6 +28,6 @@ GitHub Pages serves only the built static site from the `codex/public-site` bran
 
 ## Verification
 
-The production build was previewed under `/Needle/`. Browser checks covered the first-visit quick tour, tour navigation/completion, product search/details, save toggling, EN/KO switching, Seller studio product selection, and a refresh of `#seller`. No browser console warnings or errors were observed. All 51 public output files returned HTTP 200 locally; `.nojekyll` is a GitHub hosting directive rather than a browser asset. Source and build contain no introduction-video player, introduction-video replay links, or video media files.
+The initial production build was previewed under `/Needle/`. Browser checks covered the first-visit quick tour, tour navigation/completion, product search/details, save toggling, EN/KO switching, Seller studio product selection, and a refresh of `#seller`. No browser console warnings or errors were observed in that check. `.nojekyll` is a GitHub hosting directive rather than a browser asset. The website does not include the README's promo video.
 
 The animated extension example was checked at a narrow mobile viewport for overflow, pause/resume, replay, completion, and pausing throughout the quick tour. Closing the tour starts the visible example. No console warnings or errors were observed.

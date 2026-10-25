@@ -16,13 +16,17 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 ![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 
-**[Explore the website](https://haoming9527.github.io/Needle/) · [Run locally](#quick-start) · [Architecture](docs/ARCHITECTURE.md)**
+**[Explore the website](https://haoming9527.github.io/Needle/) · [Watch the promo](#meet-needle-in-action) · [Run locally](#quick-start) · [Architecture](docs/ARCHITECTURE.md)**
 
 </div>
 
 ---
 
-**[▶ Watch the promo video](#meet-needle-in-action)**
+## Meet Needle in action
+
+<!-- Keep this attachment URL on its own line: GitHub renders it as a video player. -->
+
+https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
 
 ## Shopping starts with what catches your eye
 
@@ -61,7 +65,13 @@ The website is a static showcase. Run the extension locally to try capture, the 
 
 ## Quick start
 
-**You’ll need:** Node.js **22.13+**, npm, and Google Chrome. Add an OpenAI API key for image recognition and voice, and an Exa API key for web discovery.
+**You’ll need:** Node.js **22.13+**, npm, Git, and Google Chrome **116+**.
+
+| Configuration | What you can try |
+| --- | --- |
+| No API keys | Text-based searches in the prepared catalog, cart, and simulated checkout |
+| `OPENAI_API_KEY` | Image recognition, catalog recommendations, product selection, and voice replies |
+| OpenAI + `EXA_API_KEY` | The full flow, including web fallback when the catalog has no suitable match |
 
 ### 1. Install
 
@@ -73,12 +83,29 @@ npm install
 
 Copy `.env.example` to `.env` if you do not already have one, then fill in your keys:
 
+<details>
+<summary>Copy commands for your terminal</summary>
+
+**PowerShell**
+
+```powershell
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+**macOS / Linux**
+
+```sh
+[ -f .env ] || cp .env.example .env
+```
+
+</details>
+
 ```dotenv
 OPENAI_API_KEY=your_openai_key
 EXA_API_KEY=your_exa_key
 ```
 
-Keep the other defaults from `.env.example`, or choose models available to your account. Keys stay on the local backend. Without an AI key, text-based catalog search still works; image recognition does not.
+Keep the other defaults from [.env.example](.env.example), or choose models available to your account. Keys stay on the local backend. Restart the API after changing `.env`.
 
 ### 2. Start the local app
 
@@ -86,7 +113,7 @@ Keep the other defaults from `.env.example`, or choose models available to your 
 npm run dev
 ```
 
-This starts the API at `http://127.0.0.1:4318` and the [shopping panel](http://127.0.0.1:5173/panel.html). Keep the process running.
+This starts the API at `http://127.0.0.1:4318` and the [shopping panel](http://127.0.0.1:5173/panel.html). These addresses work only while the app is running on your own computer. Keep the API on port **4318**; the packaged extension connects to that address.
 
 ### 3. Load the extension
 
@@ -98,11 +125,24 @@ npm run build
 
 1. Open `chrome://extensions` and enable **Developer mode**.
 2. Click **Load unpacked** and select this checkout’s **`dist/extension`** folder.
-3. Open an ordinary HTTP/HTTPS webpage and right-click an item.
+3. Allow Needle access to the pages you want to use, then right-click an item on an ordinary HTTP/HTTPS webpage.
 
 After changing extension code, rebuild and click **Reload** on Needle’s extension card. Browser-internal pages and the Chrome Web Store do not support the custom popup.
 
+After building, you can run **`npm start`** instead of `npm run dev` if you only need the installed extension. It starts the API without the panel development server.
+
 For voice, permissions, model overrides, troubleshooting, and the full API reference, see the [local development guide](docs/LOCAL_DEVELOPMENT.md).
+
+### Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| The original right-click menu appears | Turn Needle on, check Chrome site access, and reload the extension after rebuilding. **Shift + right-click** intentionally opens the original menu. |
+| Cannot connect to the agent | Keep `npm start` or `npm run dev` running. Check that [the local API](http://127.0.0.1:4318/health) responds on port 4318. |
+| Image search or voice is unavailable | Set `OPENAI_API_KEY`, check the configured models are available to your account, and restart the API. |
+| No suitable catalog product | Add `EXA_API_KEY` for web fallback, or refine the selection with a description. |
+| A video crop is black | Protected players can block capture. Use a text description or an accessible product image. |
+| `EBUSY` while watching a media file | Keep presentation videos outside the source checkout, or use `npm start` with the built extension. The README’s uploaded video does not need a local MP4. |
 
 ## Under the hood
 
@@ -148,10 +188,12 @@ docs/              Architecture, setup, requirements, and verification
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Start the local API and panel |
+| `npm start` | Run only the API for the installed extension |
 | `npm run build` | Type-check and package the extension |
 | `npm test` | Run the regression suite |
 | `npm run dev:site` | Develop the public website |
 | `npm run build:site` | Build the website into `dist/website` |
+| `npm run preview:site` | Preview the built website locally on port 4180 |
 | `npm run check:coverage` | Check configured web retrieval coverage |
 
 **[Architecture](docs/ARCHITECTURE.md) · [Local development](docs/LOCAL_DEVELOPMENT.md) · [Requirements](docs/REQUIREMENTS.md) · [Verification](docs/VERIFICATION.md) · [Website](website/README.md)**
@@ -179,7 +221,3 @@ Our idea: make AI the primary shopping interface, moving discovery from search b
 **Needle · Your eye. Your finds.**
 
 </div>
-
-## Meet Needle in action
-
-https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
