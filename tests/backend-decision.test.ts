@@ -2,9 +2,9 @@ import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { createApp } from '../server/app';
 import type { ServerConfig } from '../server/config';
-import type { ProductDecisionInput, ProductDecisionResult } from '../server/product-decision';
+import type { ProductDecisionInput, ProductDecisionResult } from '../server/agent/product-decision';
 import type { Interpretation, Offer, Selection } from '../shared/types';
-import type { ProductProvider } from '../server/provider';
+import type { ProductProvider } from '../server/providers/types';
 
 const config: ServerConfig = { exaKey: 'fixture', openAiKey: 'fixture', model: 'fixture', defaultMode: 'sample', timeoutMs: 45000, orderFile: null, databaseFile: ':memory:' };
 const item: Interpretation = { name: 'Black headphones', productType: 'headphones', color: 'black', brand: null, model: null, attributes: [], queries: ['black headphones'], needsClarification: false, clarification: null };

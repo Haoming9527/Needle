@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { coverageCases, hasCoverageEvidence } from '../server/coverage.js';
+import { coverageCases, hasCoverageEvidence } from '../scripts/lib/coverage.js';
 
 const source = (title: string, text = title) => ({ title, text, url: 'https://store.example.com/products/123' });
 

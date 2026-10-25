@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { decideProducts } from '../server/product-decision.js';
+import { decideProducts } from '../server/agent/product-decision.js';
 import type { ServerConfig } from '../server/config.js';
 import type { Interpretation, Offer } from '../shared/types.js';
 

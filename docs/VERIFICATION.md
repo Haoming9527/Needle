@@ -6,6 +6,8 @@ Current scope: Needle 0.8.2, checked on 25 October 2026 (Asia/Singapore).
 
 Latest result: all 254 tests across 21 files pass, and the production build passes TypeScript and extension-package validation.
 
+The folder refactor also passes TypeScript with `--noUnusedLocals --noUnusedParameters`. A temporary instance started through `server/index.ts` with in-memory SQLite passed its health check and returned three catalog recommendations. That startup check used no external services and did not modify the saved database. Relocated source modules were compared against their previous contents; functional changes were limited to extracting the existing discovery and HTTP code behind module interfaces. No new native-browser check was performed for this refactor.
+
 Run `npm test` and `npm run build` from the repository root. Tests use temporary or in-memory SQLite databases; they do not clear the user's saved data.
 
 - Backend coverage includes catalog search, evidence integrity, original currencies, budgets, clarification history, origin restrictions, persistent cart/history, idempotent purchases, and independent collection resets. Cleared receipt payloads are removed; confirmation identifiers and hashes prevent stale retries from recreating them.
@@ -14,7 +16,7 @@ Run `npm test` and `npm run build` from the repository root. Tests use temporary
 - Identification and Decisions receive the clean crop as primary evidence and the marked copy only as a location reference. An initial visual lookup keeps available manufacturer matches ahead of competing brands. Unknown brand/model proceeds to recommendations without an identity-confirmation choice. Questions remain for unclear physical targets or exhausted suitable-product searches; catalog misses try configured web search first. Replies reuse the original crop.
 - Extension coverage includes cursor-centered crops, marked vision input, capture races, stable popup positioning, bounded glow, microphone cleanup, and ignored late responses.
 - Right-click preferences cover saved Off startup, later re-enabling, native context-menu pass-through, cross-tab persistence, cancellation during capture/search/voice, and opening the side panel while Off without capturing.
-- The production package contains only the extension panel, worker, content script, icons, and product images. Standalone presentation pages have been removed. The separate Logan app remains in `logan/` and is excluded from the extension build.
+- The production package contains only the extension panel, worker, content script, icons, and product images. Unused standalone application and training files have been removed; the retained `logan/` directory contains only a folder marker. Development fixtures remain outside the extension build.
 - Recovery coverage includes one broader search, answerable empty results, retained refinement requirements, budget-aware questions, and catalog evidence preserved after a later AI summary failure. Abort signals remain authoritative.
 - Lost discovery replies retry once using the same capture or in-flight request. Replacement content scripts dispose stale listeners and popups; cancellation and Off prevent late retries.
 - Version 0.8.2 fixes a silent message rejection after same-origin SPA navigation. The reproduced regression supplied different sender/tab paths and observed no reply. Messages now authenticate extension, top frame, and HTTP(S) origin; capture still verifies tab identity, URL, and geometry. Invalid messages from the authorized content script receive an explicit error.

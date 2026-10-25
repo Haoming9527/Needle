@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { SearchProgress } from '../../src/panel/SearchProgress';
+import { SearchProgress } from '../../src/panel/components/SearchProgress';
 import '../../src/panel/styles.css';
 
 function Preview() {

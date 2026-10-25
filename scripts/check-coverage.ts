@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { getConfig } from '../server/config.js';
-import { exaSearch } from '../server/live-provider.js';
-import { coverageCases, hasCoverageEvidence } from '../server/coverage.js';
+import { exaSearch } from '../server/providers/live.js';
+import { coverageCases, hasCoverageEvidence } from './lib/coverage.js';
 
 const config = getConfig();
 if (!config.exaKey) {

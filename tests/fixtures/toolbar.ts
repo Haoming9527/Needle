@@ -1,5 +1,5 @@
 import type { Offer, SearchResponse } from '../../shared/types';
-import type { MediaGeometry } from '../../src/extension/geometry';
+import type { MediaGeometry } from '../../src/extension/capture/geometry';
 
 // This fixture replaces only the page-world runtime bridge. The content script
 // stays unchanged, and all right-clicks must be real browser input (isTrusted).

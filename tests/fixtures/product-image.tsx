@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ProductImage } from '../../src/panel/ui';
+import { ProductImage } from '../../src/panel/components/ui';
 
 function Fixture() {
   const [selected, setSelected] = useState('/assets/photos/headphones.png');

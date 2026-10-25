@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { createApp } from '../server/app.js';
 import type { ServerConfig } from '../server/config.js';
 import { ApiError } from '../server/errors.js';
-import { containsEvidence, hasIdentifier, matchesModel, publicImageUrl, verifiedPrice } from '../server/evidence.js';
-import { budgetFromInstruction } from '../server/preferences.js';
-import { SampleProvider } from '../server/sample-provider.js';
+import { containsEvidence, hasIdentifier, matchesModel, publicImageUrl, verifiedPrice } from '../server/providers/evidence.js';
+import { budgetFromInstruction } from '../server/agent/preferences.js';
+import { SampleProvider } from '../server/providers/catalog.js';
 
 const config: ServerConfig = { exaKey: '', openAiKey: '', model: 'test-model', defaultMode: 'sample', timeoutMs: 45_000, orderFile: null };
 const app = () => createApp({ config });

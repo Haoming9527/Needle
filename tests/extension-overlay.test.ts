@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mediaCrop, sameGeometry, type MediaGeometry } from '../src/extension/geometry';
+import { mediaCrop, sameGeometry, type MediaGeometry } from '../src/extension/capture/geometry';
 
 const base: MediaGeometry = { x: 100, y: 40, width: 1000, height: 600, viewportWidth: 1200, viewportHeight: 800, pointerX: 900, pointerY: 300, scrollX: 0, scrollY: 0 };
 describe('object crop geometry', () => {

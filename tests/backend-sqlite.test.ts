@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { createApp } from '../server/app.js';
-import { NeedleDatabase } from '../server/database.js';
+import { NeedleDatabase } from '../server/storage/database.js';
 import type { ServerConfig } from '../server/config.js';
 
 const config: ServerConfig = { exaKey: '', openAiKey: '', model: 'test-model', defaultMode: 'sample', timeoutMs: 45000, orderFile: null };

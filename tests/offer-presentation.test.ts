@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { offerSource } from '../shared/offer-source';
-import { formatMoney } from '../src/panel/ui';
+import { formatMoney } from '../src/panel/components/ui';
 
 describe('retailer-neutral product presentation', () => {
   it('labels the reference website without inventing a merchant', () => {

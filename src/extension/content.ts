@@ -1,10 +1,10 @@
 import type { Offer, SearchResponse } from '../../shared/types';
 import { offerSource } from '../../shared/offer-source';
 import { searchRecoveryQuestion } from '../../shared/search-recovery';
-import { mediaCrop } from './geometry';
-import { targetAt, targetGeometry, targetText, type ShoppingTarget } from './target';
+import { mediaCrop } from './capture/geometry';
+import { targetAt, targetGeometry, targetText, type ShoppingTarget } from './capture/target';
 import { createVoiceSession, type VoiceSession, type VoiceState } from '../voice/voice-client';
-import { createShoppingGate } from './preferences';
+import { createShoppingGate } from './storage/preferences';
 
 interface Popup {
   id: string; target: ShoppingTarget; pointerX: number; pointerY: number; host: HTMLDivElement; details: HTMLDivElement;

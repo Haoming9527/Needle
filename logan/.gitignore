@@ -1,9 +1,0 @@
-/data/
-.env
-*.log
-
-ml/cache/
-ml/models/base/
-ml/__pycache__/
-ml/.venv/
-ml/.pytest_cache/

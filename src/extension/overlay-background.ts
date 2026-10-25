@@ -1,7 +1,7 @@
 import type { CapturedSelection, CartResponse, SearchResponse, Selection } from '../../shared/types';
 import { searchRecoveryQuestion } from '../../shared/search-recovery';
-import { cropFocus, mediaCrop, sameGeometry, type CropBox, type MediaGeometry } from './geometry';
-import { createShoppingGate, type ShoppingGate } from './preferences';
+import { cropFocus, mediaCrop, sameGeometry, type CropBox, type MediaGeometry } from './capture/geometry';
+import { createShoppingGate, type ShoppingGate } from './storage/preferences';
 
 const API = 'http://127.0.0.1:4318';
 const active = new Map<number, { id: string; controller: AbortController }>();

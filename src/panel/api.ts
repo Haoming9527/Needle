@@ -1,4 +1,4 @@
-import { API_BASE } from '../extension/client';
+import { API_BASE } from '../extension/transport/client';
 import type { ApiError } from '../../shared/types';
 
 export class RequestError extends Error {

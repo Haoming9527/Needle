@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { WebDemoProvider } from '../server/web-demo-provider.js';
+import { WebDemoProvider } from '../server/providers/web.js';
 import type { ServerConfig } from '../server/config.js';
 import type { Interpretation } from '../shared/types.js';
 

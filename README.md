@@ -6,7 +6,7 @@ A local Chrome extension with a compact right-click shopping popup, a Vercel AI 
 
 The extension uses six generated category photos in `public/assets/photos/`. These are illustrative images, not verified photographs of the named catalog models. Searching shows a small red glow at the selected point, elapsed time, and an available cancel control.
 
-Search returns a useful product or a question you can answer in the popup by text or microphone. Decorative stickers and custom lettering do not require an exact match. If product selection rejects all web candidates, Needle tries one broader search under the original deadline and constraints, then asks for guidance while keeping the original crop.
+Search recommends a suitable product even when its exact brand or model is unknown. It asks a question only when the intended object is unclear or no suitable product remains after searching. Decorative stickers and custom lettering do not require an exact match. If product selection rejects all web candidates, Needle tries one broader search under the original deadline and constraints, then asks for guidance while keeping the original crop.
 
 Dropped discovery replies recover once using the same selection. The visible panel reconnects when the local service comes back. Cart and purchase retries use persistent identifiers to avoid duplicate additions or receipts; if a cart reply is lost, retry within the same popup or confirmation dialog. Your selected variant stays fixed for that retry.
 
@@ -49,7 +49,7 @@ OPENAI_TTS_VOICE=coral
 OPENAI_TRANSCRIBE_MODEL=gpt-transcribe
 ```
 
-The dedicated OpenAI Decisions endpoint chooses the best fit from the retrieved candidates, using the marked cursor crop, identified features, constraints, and clarification replies. Only a successful choice receives **Best fit**. A rejected catalog candidate set can trigger Exa fallback. Missing credentials or a failed decision keep the existing grounded recommendations with a search note; prices, match labels, and merchant facts are never rewritten by the decision.
+The dedicated OpenAI Decisions endpoint chooses the best fit from the retrieved candidates, using the clean crop as primary evidence and a marked copy to locate the cursor, alongside identified features, constraints, and clarification replies. Only a successful choice receives **Best fit**. A rejected catalog candidate set can trigger Exa fallback. Missing credentials or a failed decision keep the existing grounded recommendations with a search note; prices, match labels, and merchant facts are never rewritten by the decision.
 
 Alternatively, set `AI_GATEWAY_API_KEY` for identification and catalog search; Decisions and voice require a direct `OPENAI_API_KEY`. The OpenAI key takes priority when both are present. No Vercel deployment is required. `EXA_API_KEY` enables automatic web fallback when the catalog has no close match, including searches started from the right-click popup. Without it, prepared catalog searches still work.
 
@@ -94,13 +94,13 @@ Technical lifecycle note: this prototype uses OpenAI's Speech endpoint with `gpt
 
 Chrome's screenshot API requires `<all_urls>` for capture initiated by a webpage right-click rather than an extension-menu invocation. This expanded permission was explicitly approved. Content scripts now run in ordinary HTTP(S) top-level pages, as requested, and updates reattach them to open pages. No screenshots are captured until a user gesture. There is no ongoing feed scraping, X API access, posting, liking, or account automation.
 
-The popup is visible immediately, then briefly hidden during capture. Only a region of up to 320 × 320 CSS pixels, clipped to the visible media when detected or otherwise to the viewport, reaches the backend. Vision receives a marked copy with a target ring and exact normalized cursor coordinates, including near image edges; the shopper sees the clean crop. Replies reuse these images rather than recapturing a moving video. Tab switches, navigation, cancellation, and changed geometry invalidate capture. Raw full-tab pixels are transient. Neither crop copy is saved in SQLite. The manual crop fallback retains its screenshot only in extension session storage. Video protections may produce a black frame; use a description in that case.
+The popup is visible immediately, then briefly hidden during capture. Only a region of up to 320 × 320 CSS pixels, clipped to the visible media when detected or otherwise to the viewport, reaches the backend. Vision receives the clean crop first, plus a reference copy with a target ring and exact normalized cursor coordinates, including near image edges; the shopper sees the clean crop. Replies reuse these images rather than recapturing a moving video. Tab switches, navigation, cancellation, and changed geometry invalidate capture. Raw full-tab pixels are transient. Neither crop copy is saved in SQLite. The manual crop fallback retains its screenshot only in extension session storage. Video protections may produce a black frame; use a description in that case.
 
 ## SQLite and the agent
 
 `.local/needle.sqlite` is created and seeded automatically. It stores seeded and web-derived catalog records, search interpretations for one hour, cart items, and purchase receipts. Raw image captures are excluded. Selected source-page metadata is retained with its search; general browsing history is not collected.
 
-The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Collapsed Product details retains provenance. Edit `server/catalog.ts` to change fixtures; startup upserts the seeded records.
+The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Collapsed Product details retains provenance. Edit `server/storage/catalog.ts` to change fixtures; startup upserts the seeded records.
 
 **Clear cart** removes every saved cart entry; **Clear history** removes the local purchase receipts. Each button affects only its own collection. Catalog products and API credentials remain available. Clearing history keeps only confirmation identifiers and request hashes to reject stale purchase retries, without retaining deleted receipt payloads.
 
@@ -125,6 +125,36 @@ Existing `.local/demo-orders.json` receipts are imported once without changing t
 | `GET /orders`, `POST /orders` | Read history or confirm a purchase |
 | `POST /orders/clear` | Clear purchase history; strict empty JSON body `{}` |
 | `POST /demo-orders` | Backwards-compatible purchase endpoint |
+
+## Code layout
+
+The separate [public website](website/README.md) lives in `website/`. Use `npm run dev:site` to work on it and `npm run build:site` to build `dist/website/`. It reproduces the reference's shopper/seller experience and starts with the quick tour. Extension commands and output remain separate.
+
+```text
+server/
+  agent/           # Identification, catalog tool loop, product decisions, search workflow
+  providers/       # Catalog and Exa retrieval, source evidence, provider contract
+  storage/         # SQLite persistence and seed catalog
+  http/            # Request validation, local access rules, cancellation, errors
+  routes/          # Voice endpoints
+  app.ts           # Compose dependencies and register API routes
+  index.ts         # Start the local API
+src/
+  extension/
+    capture/       # Cursor geometry and target detection
+    storage/       # Persistent On/Off preference
+    transport/     # Browser messaging and panel handoff
+  panel/
+    components/    # Shopping, cart, history, voice, and loading UI
+  voice/           # Shared browser recording/transcription client
+shared/            # Browser/server contracts and shared presentation rules
+website/           # Static public site, its components, and self-hosted assets
+tests/             # Regression tests and development-only browser fixtures
+scripts/           # Build checks, retrieval checks, and icon maintenance
+docs/              # Requirements, architecture, verification, hackathon reference
+```
+
+Start with [the architecture guide](docs/ARCHITECTURE.md) for the request flow and where to make common changes. Runtime commands and extension entry points are unchanged. Local keys and saved data stay in the ignored `.env` and `.local/` paths.
 
 ## Checks
 

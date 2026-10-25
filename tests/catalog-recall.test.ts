@@ -1,10 +1,10 @@
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../server/app.js';
-import { sampleCatalog, type SampleProduct } from '../server/catalog.js';
+import { sampleCatalog, type SampleProduct } from '../server/storage/catalog.js';
 import type { ServerConfig } from '../server/config.js';
-import type { ProductDecisionInput } from '../server/product-decision.js';
-import { SampleProvider } from '../server/sample-provider.js';
+import type { ProductDecisionInput } from '../server/agent/product-decision.js';
+import { SampleProvider } from '../server/providers/catalog.js';
 import type { Interpretation, Offer } from '../shared/types.js';
 
 const config: ServerConfig = { exaKey: 'test-only', openAiKey: 'test-only', model: 'test-model', defaultMode: 'sample', timeoutMs: 45000, orderFile: null, databaseFile: ':memory:' };

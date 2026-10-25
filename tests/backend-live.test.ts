@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LiveProvider, exaSearch } from '../server/live-provider.js';
+import { LiveProvider, exaSearch } from '../server/providers/live.js';
 import type { ServerConfig } from '../server/config.js';
 
 const config: ServerConfig = { exaKey: 'test-exa', openAiKey: 'test-openai', model: 'gpt-5.6-terra', defaultMode: 'live', timeoutMs: 45000, orderFile: null };

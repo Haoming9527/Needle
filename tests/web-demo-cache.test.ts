@@ -2,8 +2,8 @@ import { mkdtempSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { NeedleDatabase } from '../server/database.js';
-import { SampleProvider } from '../server/sample-provider.js';
+import { NeedleDatabase } from '../server/storage/database.js';
+import { SampleProvider } from '../server/providers/catalog.js';
 import type { Interpretation, Offer } from '../shared/types.js';
 
 const item: Interpretation = { name: 'Black F-style electric mandolin', productType: 'mandolin', brand: 'Kentucky', model: 'KM-1500', color: 'Black', attributes: ['F-style', 'electric'], queries: ['black F-style electric mandolin'], needsClarification: false, clarification: null };

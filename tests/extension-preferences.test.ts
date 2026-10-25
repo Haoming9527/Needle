@@ -21,18 +21,18 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('persistent shopping preference', () => {
   it('defaults to enabled and persists OFF for a fresh client context', async () => {
-    const client = await import('../src/extension/client');
+    const client = await import('../src/extension/transport/client');
     expect(await client.getShoppingEnabled()).toBe(true);
     const listener = vi.fn(), unsubscribe = client.subscribeToShoppingEnabled(listener);
     await client.setShoppingEnabled(false);
     expect(values['needle.enabled']).toBe(false); expect(listener).toHaveBeenLastCalledWith(false);
     unsubscribe(); vi.resetModules();
-    expect(await (await import('../src/extension/client')).getShoppingEnabled()).toBe(false);
+    expect(await (await import('../src/extension/transport/client')).getShoppingEnabled()).toBe(false);
   });
   it('loads fail-closed and never lets a stale initial read override a newer OFF event', async () => {
     let finish!: (value: unknown) => void;
     api.storage.local.get.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const { createShoppingGate, setShoppingEnabled } = await import('../src/extension/preferences');
+    const { createShoppingGate, setShoppingEnabled } = await import('../src/extension/storage/preferences');
     const gate = createShoppingGate();
     expect(gate.isEnabled()).toBe(false);
     await setShoppingEnabled(false); finish({ 'needle.enabled': true });
@@ -40,7 +40,7 @@ describe('persistent shopping preference', () => {
     gate.dispose();
   });
   it('aborts old work on OFF even when subsequently switched ON again', async () => {
-    const { createShoppingGate, setShoppingEnabled } = await import('../src/extension/preferences');
+    const { createShoppingGate, setShoppingEnabled } = await import('../src/extension/storage/preferences');
     const gate = createShoppingGate(); await gate.ready;
     const previous = gate.signal();
     await setShoppingEnabled(false); expect(previous.aborted).toBe(true);
@@ -53,7 +53,7 @@ describe('persistent shopping preference', () => {
     const local = new Map<string, string>();
     const storage = { getItem: (key: string) => local.get(key) ?? null, setItem: (key: string, value: string) => local.set(key, value) };
     const target = new EventTarget(); vi.stubGlobal('window', target); vi.stubGlobal('localStorage', storage);
-    const client = await import('../src/extension/client');
+    const client = await import('../src/extension/transport/client');
     const listener = vi.fn(), unsubscribe = client.subscribeToShoppingEnabled(listener);
     await client.setShoppingEnabled(false);
     expect(await client.getShoppingEnabled()).toBe(false); expect(listener).toHaveBeenLastCalledWith(false);

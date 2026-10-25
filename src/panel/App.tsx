@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowUp, Check, Crop, History, ImagePlus, Info, Plus, RefreshCw, Search, Settings2, ShoppingCart } from 'lucide-react';
 import type { CapturedSelection, CartItem, ClarifyRequest, DemoOrder, DiscoverRequest, HealthResponse, RefineRequest, SearchResponse, Selection } from '../../shared/types';
-import { clearCapturedSelection, getCapturedSelection, isExtension, requestCapture, subscribeToSelection } from '../extension/client';
+import { clearCapturedSelection, getCapturedSelection, isExtension, requestCapture, subscribeToSelection } from '../extension/transport/client';
 import { apiRequest, RequestError } from './api';
-import { CropDialog } from './CropDialog';
-import { CheckoutDialog, type CheckoutSelection } from './CheckoutDialog';
-import { ProductResult } from './ProductResult';
-import { SearchProgress } from './SearchProgress';
-import { VoiceReply } from './VoiceReply';
-import { ShoppingSwitch } from './ShoppingSwitch';
-import { Cart, PurchaseHistory } from './SavedItems';
-import { NeedleMark, ProductImage } from './ui';
+import { CropDialog } from './components/CropDialog';
+import { CheckoutDialog, type CheckoutSelection } from './components/CheckoutDialog';
+import { ProductResult } from './components/ProductResult';
+import { SearchProgress } from './components/SearchProgress';
+import { VoiceReply } from './components/VoiceReply';
+import { ShoppingSwitch } from './components/ShoppingSwitch';
+import { Cart, PurchaseHistory } from './components/SavedItems';
+import { NeedleMark, ProductImage } from './components/ui';
 import { searchRecoveryQuestion } from '../../shared/search-recovery';
 import './styles.css';
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { identifyWithAI } from '../server/ai.js';
+import { identifyWithAI } from '../server/agent/identification.js';
 import type { ServerConfig } from '../server/config.js';
 import type { Interpretation } from '../shared/types.js';
 

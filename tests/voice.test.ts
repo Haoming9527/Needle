@@ -2,9 +2,9 @@ import express, { type ErrorRequestHandler } from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { NeedleDatabase } from '../server/database.js';
+import { NeedleDatabase } from '../server/storage/database.js';
 import type { ServerConfig } from '../server/config.js';
-import { installVoiceRoutes } from '../server/voice.js';
+import { installVoiceRoutes } from '../server/routes/voice.js';
 import { ApiError } from '../server/errors.js';
 import type { Interpretation, Offer, SearchResponse } from '../shared/types.js';
 

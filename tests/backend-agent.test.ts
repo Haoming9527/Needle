@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CatalogAgentProvider } from '../server/catalog-agent.js';
-import { SampleProvider } from '../server/sample-provider.js';
+import { CatalogAgentProvider } from '../server/agent/catalog-agent.js';
+import { SampleProvider } from '../server/providers/catalog.js';
 import type { ServerConfig } from '../server/config.js';
-import { identifyWithAI } from '../server/ai.js';
+import { identifyWithAI } from '../server/agent/identification.js';
 
 const config: ServerConfig = { exaKey: '', openAiKey: 'test-only', model: 'test-model', defaultMode: 'sample', timeoutMs: 45000, orderFile: null };
 const item = { name: 'Black podcast microphone', productType: 'microphone', brand: null, model: null, color: 'Black', attributes: ['Dynamic'], queries: ['podcast microphone'], needsClarification: false, clarification: null };

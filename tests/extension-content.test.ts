@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mediaCrop } from '../src/extension/geometry';
-import { targetAt, targetGeometry, targetText } from '../src/extension/target';
+import { mediaCrop } from '../src/extension/capture/geometry';
+import { targetAt, targetGeometry, targetText } from '../src/extension/capture/target';
 
 // A small DOM contract harness: actual content-script listeners run against controllable
 // geometry and message timing. Browser screenshots cover native rendering separately.
@@ -57,7 +57,6 @@ class FakeElement {
   emit(type: string, value: unknown = {}) { for (const fn of this.listeners.get(type) ?? []) fn(value); }
   dispatchEvent(event: Event) { this.emit(event.type, event); return true; }
 }
-const asElement = (value: FakeElement) => value as unknown as Element;
 const extensionId = 'a'.repeat(32);
 let root: FakeElement;
 let windowEvents: FakeElement;

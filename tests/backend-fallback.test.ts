@@ -4,7 +4,7 @@ import { createApp } from '../server/app.js';
 import type { ServerConfig } from '../server/config.js';
 import { ApiError } from '../server/errors.js';
 import type { Interpretation, Offer } from '../shared/types.js';
-import type { ProductProvider, ProviderResult } from '../server/provider.js';
+import type { ProductProvider, ProviderResult } from '../server/providers/types.js';
 
 const config: ServerConfig = { exaKey: 'test-exa', openAiKey: 'test-openai', model: 'test-model', defaultMode: 'sample', timeoutMs: 45000, orderFile: null };
 const item: Interpretation = { name: 'Black F-style electric mandolin', productType: 'mandolin', brand: null, model: null, color: 'Black', attributes: ['F-style', 'electric'], queries: ['black F-style electric mandolin', '검정 일렉트릭 만돌린'], needsClarification: false, clarification: null };
@@ -41,7 +41,7 @@ describe('automatic Exa fallback for catalog misses', () => {
 
   it('keeps catalog results first and does not call Exa when a match exists', async () => {
     const catalogOffer: Offer = { ...offer, id: 'sample-mandolin', dataOrigin: 'sample', sourceUrl: null };
-    const { app, live, web } = setup({}, item, { offers: [catalogOffer], warnings: [] });
+    const { app, web } = setup({}, item, { offers: [catalogOffer], warnings: [] });
     const response = await request(app).post('/discover').send(body).expect(200);
     expect(response.body.discoverySource).toBe('catalog');
     expect(response.body.webSearch).toBeUndefined();
@@ -49,7 +49,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('does not search unresolved objects', async () => {
-    const { app, live, web } = setup({}, { ...item, needsClarification: true, clarification: 'Choose the instrument in the image.' });
+    const { app, web } = setup({}, { ...item, needsClarification: true, clarification: 'Choose the instrument in the image.' });
     const response = await request(app).post('/discover').send(body).expect(200);
     expect(response.body.interpretation.needsClarification).toBe(true);
     expect(response.body.webSearch).toBeUndefined();
@@ -60,7 +60,7 @@ describe('automatic Exa fallback for catalog misses', () => {
     [{ exaKey: '' }, 'EXA_API_KEY'],
     [{ openAiKey: '' }, 'OPENAI_API_KEY'],
   ])('explains missing configuration without fabricating offers', async (overrides, missingKey) => {
-    const { app, live, web } = setup(overrides);
+    const { app, web } = setup(overrides);
     const response = await request(app).post('/discover').send(body).expect(200);
     expect(response.body.offers).toEqual([]);
     expect(response.body.webSearch).toMatchObject({ status: 'unavailable' });
@@ -71,7 +71,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('preserves the target and exposes a useful retry message when Exa fails', async () => {
-    const { app, live, web } = setup();
+    const { app, web } = setup();
     vi.mocked(web.search).mockRejectedValue(new ApiError(429, 'RATE_LIMITED', 'Exa is busy. Please retry later.'));
     const response = await request(app).post('/discover').send(body).expect(200);
     expect(response.body.interpretation).toEqual(item);
@@ -82,7 +82,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('never leaks unexpected upstream error details', async () => {
-    const { app, live, web } = setup();
+    const { app, web } = setup();
     vi.mocked(web.search).mockRejectedValue(new Error('sensitive upstream context'));
     const response = await request(app).post('/discover').send(body).expect(200);
     expect(response.body.webSearch.status).toBe('failed');
@@ -90,7 +90,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('reports an empty web search with recovery guidance', async () => {
-    const { app, live, web } = setup();
+    const { app, web } = setup();
     vi.mocked(web.search).mockResolvedValue({ offers: [], warnings: ['No product pages were retrieved.'] });
     const response = await request(app).post('/discover').send(body).expect(200);
     expect(response.body).toMatchObject({ discoverySource: 'exa', webSearch: { status: 'empty' }, offers: [] });
@@ -110,7 +110,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('turns grounded web matches into persistent demo items', async () => {
-    const { app, live, web } = setup();
+    const { app, web } = setup();
     vi.mocked(web.search).mockResolvedValue({ offers: [], warnings: [] });
     const webOffer: Offer = { ...offer, id: 'web-sample-mandolin', dataOrigin: 'sample', sourceUrl: null, referenceUrl: 'https://music.example.com/mandolin', price: 599900, currency: 'KRW', priceIsIllustrative: true };
     vi.mocked(web.search).mockResolvedValue({ offers: [webOffer], warnings: ['Prices marked illustrative are generated examples.'] });
@@ -122,7 +122,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('retains the original object and catalog-first mode when refining an Exa fallback', async () => {
-    const { app, sample, live, web } = setup();
+    const { app, sample, web } = setup();
     const initial = await request(app).post('/discover').send(body).expect(200);
     const instruction = 'Find something similar under KRW 500,000';
     const response = await request(app).post('/refine').send({ sessionId: initial.body.sessionId, instruction }).expect(200);
@@ -137,7 +137,7 @@ describe('automatic Exa fallback for catalog misses', () => {
   });
 
   it('shares the original request deadline with fallback instead of starting a new timeout', async () => {
-    const { app, live, web } = setup({ timeoutMs: 25 });
+    const { app, web } = setup({ timeoutMs: 25 });
     let signal: AbortSignal | undefined;
     vi.mocked(web.search).mockImplementation(async (_item, _preferences, incoming) => {
       signal = incoming;

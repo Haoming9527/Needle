@@ -1,6 +1,6 @@
 import type { CapturedSelection, Selection } from '../../shared/types';
 import { installOverlayMessages } from './overlay-background';
-import { createShoppingGate } from './preferences';
+import { createShoppingGate } from './storage/preferences';
 
 installOverlayMessages();
 
