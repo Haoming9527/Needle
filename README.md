@@ -24,9 +24,7 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 
 ## Meet Needle in action
 
-[![Watch Needle Promo](https://img.shields.io/badge/%E2%96%B6_Watch-Needle_Promo-3166F5?style=for-the-badge)](Needle_Promo.mp4)
-
-**[Watch the promo video →](Needle_Promo.mp4)**
+https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
 
 ## Shopping starts with what catches your eye
 
@@ -180,7 +178,7 @@ docs/              Architecture, setup, requirements, and verification
 
 ## Team 9
 
-Built for **AI Grand Prix Singapore**, where **Team 9 placed in the Top 10**.
+Built for **AI Grand Prix Singapore**.
 
 Our idea: make AI the primary shopping interface, moving discovery from search boxes to the things people already see and want.
 
