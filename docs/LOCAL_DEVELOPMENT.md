@@ -12,7 +12,7 @@ Dropped discovery replies recover once using the same selection. The visible pan
 
 ## Run locally
 
-Requires Node.js 22.13+ (tested on 26.12.1).
+Requires Node.js 22.13+ and Chrome 116+. Run these commands from the repository root.
 
 ```powershell
 npm install
@@ -23,11 +23,11 @@ npm run dev
 
 - [Shopping panel](http://127.0.0.1:5173/panel.html)
 
-The API binds to `127.0.0.1:4318`; Vite binds to `127.0.0.1:5173`. Keep them running. For the API alone, use `npm start`.
+The API binds to `127.0.0.1:4318`; Vite binds to `127.0.0.1:5173`. These addresses are local to your computer. Keep the API running. After building the extension, use `npm start` if you do not need the Vite panel preview. Keep port 4318 unless you also update the extension client and manifest.
 
 ## AI configuration
 
-Your existing `.env` is preserved. The only required key for the demo agent is:
+For image identification and voice, set `OPENAI_API_KEY`. Add `EXA_API_KEY` to enable web discovery. Copy the remaining defaults from `.env.example`; do not overwrite an existing `.env` containing your keys.
 
 ```dotenv
 OPENAI_API_KEY=your_key
@@ -53,7 +53,7 @@ The dedicated OpenAI Decisions endpoint chooses the best fit from the retrieved 
 
 Alternatively, set `AI_GATEWAY_API_KEY` for identification and catalog search; Decisions and voice require a direct `OPENAI_API_KEY`. The OpenAI key takes priority when both are present. No Vercel deployment is required. `EXA_API_KEY` enables automatic web fallback when the catalog has no close match, including searches started from the right-click popup. Without it, prepared catalog searches still work.
 
-With a key, the agent interprets the selected image, calls a SQLite catalog-search tool, and compares up to eight grounded candidates before showing three recommendations. The candidate pool keeps prepared records alongside cached web products; supported manufacturer evidence takes priority over decorative lettering or a title's theme. Brand recognition does not establish an exact model. Without a key, text descriptions still search the prepared catalog; image recognition is unavailable. Keys stay on the backend and are never bundled into the extension.
+With a key, the agent interprets the selected image, calls a SQLite catalog-search tool, and compares up to eight grounded candidates before showing up to three recommendations. The candidate pool keeps prepared records alongside cached web products; supported manufacturer evidence takes priority over decorative lettering or a title's theme. Brand recognition does not establish an exact model. Without a key, text descriptions still search the prepared catalog; image recognition is unavailable. Keys stay on the backend and are never bundled into the extension.
 
 ### When there is no catalog match
 
@@ -67,8 +67,8 @@ Web-derived demo items show their source website and retain the original referen
 npm run build
 ```
 
-1. Open `chrome://extensions`, enable Developer mode, and load unpacked the `dist/extension` folder inside your checkout.
-2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
+1. Open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select the `dist/extension` folder inside your checkout.
+2. If Needle is already installed, click its **Reload** control. Grant site access for pages where you want to use right-click shopping.
 3. Check that Chrome shows **version 0.8.2**. Needle reattaches to open webpages automatically after reloading the extension.
 4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
 5. Needle captures a small region around the cursor, marks the exact point for vision, and automatically searches. A red glow stays at the clicked point while searching and disappears when the search ends. It hides during capture and respects reduced motion. Its two shopping actions become available when a result and any required variant are ready. If the agent asks which object you mean, type your answer directly in the popup and press Enter or Search.
@@ -88,17 +88,17 @@ When Needle asks a clarification question, click the small **microphone icon ins
 
 Recording starts only after the microphone button is clicked, stops after 30 seconds, and is cancelled when the question is closed or replaced. Audio is sent through the local backend to OpenAI and held only in memory; it is not written to SQLite. Typing remains available when a page blocks microphone access. The popup and panel each use one microphone control; the Speech endpoint remains available on the backend without a separate playback button.
 
-Technical lifecycle note: this prototype uses OpenAI's Speech endpoint with `gpt-4o-mini-tts`, currently scheduled to retire on 6 January 2027. Migrating to Realtime speech requires an integration change, not just a model-name substitution. See the [speech guide](https://developers.openai.com/api/docs/guides/text-to-speech).
+Voice replies use transcription. The optional question-audio endpoint uses the configured speech model; it is separate from the microphone UI. Model names are configurable in `.env` and must be available to your account.
 
 ### Browser permission
 
-Chrome's screenshot API requires `<all_urls>` for capture initiated by a webpage right-click rather than an extension-menu invocation. This expanded permission was explicitly approved. Content scripts now run in ordinary HTTP(S) top-level pages, as requested, and updates reattach them to open pages. No screenshots are captured until a user gesture. There is no ongoing feed scraping, X API access, posting, liking, or account automation.
+Needle requests `<all_urls>` so Chrome's screenshot API can capture after a webpage right-click. Content scripts run in ordinary HTTP(S) top-level pages, and updates reattach them to open pages. No screenshots are captured until a user gesture. There is no ongoing feed scraping, X API access, posting, liking, or account automation.
 
 The popup is visible immediately, then briefly hidden during capture. Only a region of up to 320 × 320 CSS pixels, clipped to the visible media when detected or otherwise to the viewport, reaches the backend. Vision receives the clean crop first, plus a reference copy with a target ring and exact normalized cursor coordinates, including near image edges; the shopper sees the clean crop. Replies reuse these images rather than recapturing a moving video. Tab switches, navigation, cancellation, and changed geometry invalidate capture. Raw full-tab pixels are transient. Neither crop copy is saved in SQLite. The manual crop fallback retains its screenshot only in extension session storage. Video protections may produce a black frame; use a description in that case.
 
 ## SQLite and the agent
 
-`.local/needle.sqlite` is created and seeded automatically. It stores seeded and web-derived catalog records, search interpretations for one hour, cart items, and purchase receipts. Raw image captures are excluded. Selected source-page metadata is retained with its search; general browsing history is not collected.
+`.local/needle.sqlite` is created and seeded automatically. It stores seeded and web-derived catalog records, search interpretations, cart items, and purchase receipts. Search sessions expire after one hour; expired records are removed on later access or new-search cleanup, rather than by a background deletion timer. Raw image captures are excluded. Selected source-page metadata is retained with its search; general browsing history is not collected.
 
 The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Collapsed Product details retains provenance. Edit `server/storage/catalog.ts` to change fixtures; startup upserts the seeded records.
 
