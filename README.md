@@ -24,9 +24,7 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 
 ## Meet Needle in action
 
-[![Watch Needle Promo](https://img.shields.io/badge/%E2%96%B6_Watch-Needle_Promo-3166F5?style=for-the-badge)](Needle_Promo.mp4)
-
-**[Watch the promo video →](Needle_Promo.mp4)**
+https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
 
 ## Shopping starts with what catches your eye
 
