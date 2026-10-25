@@ -16,7 +16,7 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 ![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 
-**[Explore the website](https://haoming9527.github.io/Needle/) · [Run locally](#quick-start) · [Architecture](docs/ARCHITECTURE.md)**
+**[Explore the website](https://haoming9527.github.io/Needle/) · [Architecture](docs/ARCHITECTURE.md)**
 
 </div>
 
@@ -24,7 +24,9 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 
 ## Meet Needle in action
 
-https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
+[![Watch Needle Promo](https://img.shields.io/badge/%E2%96%B6_Watch-Needle_Promo-3166F5?style=for-the-badge)](Needle_Promo.mp4)
+
+**[Watch the promo video →](Needle_Promo.mp4)**
 
 ## Shopping starts with what catches your eye
 
