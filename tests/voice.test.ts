@@ -91,7 +91,7 @@ describe('OpenAI voice question and answer endpoints', () => {
       .mockResolvedValueOnce(Response.json({ text: 'A similar one is fine.' }));
     vi.stubGlobal('fetch', mock);
     await request(application()).post('/voice/question').send({ sessionId: emptyId }).expect(200);
-    expect(JSON.parse(mock.mock.calls[0][1].body).input).toContain('brand/model');
+    expect(JSON.parse(mock.mock.calls[0][1].body).input).toContain('could not find a suitable item');
     const response = await request(application()).post('/voice/transcribe').send({ sessionId: emptyId, audioDataUrl: recording }).expect(200);
     expect(response.body.text).toBe('A similar one is fine.');
     expect(database.session(emptyId).result.offers).toEqual([]);

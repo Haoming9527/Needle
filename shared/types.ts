@@ -51,7 +51,7 @@ export interface DiscoverRequest { selection: Selection; preferences?: Preferenc
 export interface RefineRequest { sessionId: string; instruction: string; preferences?: Preferences }
 export interface ClarifyRequest { sessionId: string; answer: string; selection: Selection }
 export interface ProductDecision {
-  status: 'selected' | 'needs_clarification' | 'no_match' | 'unavailable' | 'failed';
+  status: 'selected' | 'no_match' | 'unavailable' | 'failed';
   offerId?: string;
   model?: string;
 }

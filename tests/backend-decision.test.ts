@@ -14,9 +14,8 @@ const selection = { imageDataUrl: 'data:image/jpeg;base64,AAAA', annotatedImageD
 const choose = async (_config: ServerConfig, input: ProductDecisionInput): Promise<ProductDecisionResult> => ({ offers: [input.offers[1], input.offers[0]], decision: { status: 'selected', offerId: input.offers[1].id, model: 'gpt-6-luna' }, warnings: [] });
 
 describe('Decisions in the shopping workflow', () => {
-  it.each(['catalog', 'live', 'web-fallback'] as const)('keeps a decision question answerable through %s discovery without another search', async source => {
-    const question = 'Which brand is the laptop, or would you like a similar option?';
-    const decide = vi.fn().mockResolvedValue({ offers: [], decision: { status: 'needs_clarification' }, clarification: question, warnings: [] });
+  it.each(['catalog', 'live', 'web-fallback'] as const)('returns recommendations through %s discovery when brand/model are unknown', async source => {
+    const decide = vi.fn(choose);
     const identify = vi.fn(async (_selection: Selection) => item);
     const sampleSearch = vi.fn(async () => ({ offers: source === 'web-fallback' ? [] : [first, best], warnings: [] }));
     const liveSearch = vi.fn(async () => ({ offers: [first, best], warnings: [] }));
@@ -24,17 +23,11 @@ describe('Decisions in the shopping workflow', () => {
     const app = createApp({ config, sampleProvider: { identify, search: sampleSearch }, liveProvider: { identify, search: liveSearch }, webDemoProvider: { identify, search: webSearch }, decisionProvider: decide });
     try {
       const found = await request(app).post('/discover').send({ selection, mode: source === 'live' ? 'live' : 'sample' }).expect(200);
-      expect(found.body).toMatchObject({ offers: [], interpretation: { needsClarification: true, clarification: question }, decision: { status: 'needs_clarification' } });
+      expect(found.body).toMatchObject({ offers: [best, first], interpretation: { brand: null, model: null, needsClarification: false, clarification: null }, decision: { status: 'selected' } });
       expect(decide).toHaveBeenCalledTimes(1);
       expect(webSearch).toHaveBeenCalledTimes(source === 'web-fallback' ? 1 : 0);
       expect(liveSearch).toHaveBeenCalledTimes(source === 'live' ? 1 : 0);
-      expect(app.locals.database.session(found.body.sessionId).interpretation.clarification).toBe(question);
-      if (source === 'web-fallback') expect(found.body.webSearch.message).toBe(question);
-      decide.mockImplementation(choose);
-      const answered = await request(app).post('/clarify').send({ sessionId: found.body.sessionId, selection, answer: 'A similar option is fine' }).expect(200);
-      expect(answered.body.offers[0]).toEqual(best);
-      expect(answered.body.interpretation.needsClarification).toBe(false);
-      expect(decide.mock.lastCall?.[1].selection).toMatchObject({ ...selection, clarifications: [{ question, answer: 'A similar option is fine' }] });
+      expect(app.locals.database.session(found.body.sessionId).interpretation.needsClarification).toBe(false);
     } finally { app.locals.database.close(); }
   });
 

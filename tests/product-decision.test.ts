@@ -36,7 +36,7 @@ describe('OpenAI Decisions product selection', () => {
   });
 
   it('sends the marked target crop, exact cursor point and buyer constraints without fetching remote pictures', async () => {
-    const mock = mockDecision(answer('mandolin', { guitar: .01, mandolin: .8, 'brown-mandolin': .15, [noMatch]: .04, __clarify_product_identity__: 0 }));
+    const mock = mockDecision();
     const result = await decideProducts(config, { item, offers, preferences: {}, instruction: 'Most similar shape, not the cheapest', selection: { imageDataUrl: 'data:image/jpeg;base64,AAAA', annotatedImageDataUrl: 'data:image/jpeg;base64,BBBB', imageUrl: 'https://untrusted.example/secret.png', focus: { x: .08, y: .9 }, clarifications: [{ question: 'The instrument or shirt?', answer: 'The instrument on the wall.' }] } }, signal());
     expect(result.decision.status).toBe('selected');
     const body = JSON.parse(mock.mock.calls[0][1]!.body as string);
@@ -49,19 +49,19 @@ describe('OpenAI Decisions product selection', () => {
     expect(mock).toHaveBeenCalledTimes(1);
   });
 
-  it('asks the buyer when the image cannot distinguish the available product identities', async () => {
-    const question = '__clarify_product_identity__';
-    const mock = mockDecision(answer(question, { guitar: 0, mandolin: 0, 'brown-mandolin': 0, [noMatch]: 0, [question]: 1 }));
-    const result = await decideProducts(config, { item, offers, preferences: {}, selection: { imageDataUrl: 'data:image/jpeg;base64,AAAA', focus: { x: .5, y: .9 } } }, signal());
+  it.each([{ clarifications: [] }, { clarifications: [{ question: 'What brand/model is it, or is a similar option okay?', answer: 'Just find the closest microphone' }] }])('recommends a microphone with unknown brand/model without identity confirmation (conversation: %j)', async ({ clarifications }) => {
+    const microphone = offer('mic', 'Black dynamic podcast microphone');
+    const mock = mockDecision(answer('mic', { mic: 1, [noMatch]: 0 }));
+    const result = await decideProducts(config, { item: { ...item, productType: 'microphone', name: 'Black microphone' }, offers: [microphone], preferences: {}, selection: { imageDataUrl: 'data:image/jpeg;base64,AAAA', focus: { x: .5, y: .9 }, clarifications } }, signal());
     const body = JSON.parse(mock.mock.calls[0][1]!.body as string);
-    expect(body.questions[0].choices.map((entry: { value: string }) => entry.value)).toContain(question);
-    expect(result).toMatchObject({ offers: [], decision: { status: 'needs_clarification' }, clarification: expect.stringMatching(/brand|model/) });
-    expect(result.clarification).toContain('mandolin');
+    expect(body.questions[0].choices.map((entry: { value: string }) => entry.value)).toEqual(['mic', noMatch]);
+    expect(result).toMatchObject({ offers: [microphone], decision: { status: 'selected', offerId: 'mic' } });
+    expect(result).not.toHaveProperty('clarification');
   });
 
   it('keeps an identified manufacturer ahead of a same-color competing brand for the initial image search', async () => {
     const candidates = [offer('lg', 'LG gray laptop'), offer('apple', 'Apple MacBook Pro')];
-    const mock = mockDecision(answer('apple', { apple: 1, [noMatch]: 0, __clarify_product_identity__: 0 }));
+    const mock = mockDecision(answer('apple', { apple: 1, [noMatch]: 0 }));
     const result = await decideProducts(config, {
       item: { ...item, name: 'Apple laptop', productType: 'laptop', brand: 'Apple', model: null }, offers: candidates,
       preferences: {}, selection: { imageDataUrl: 'data:image/jpeg;base64,AAAA' },

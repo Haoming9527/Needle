@@ -84,12 +84,8 @@ export function createApp(options: AppOptions = {}) {
     };
     const rank = async (result: ProviderResult): Promise<SearchOutcome> => {
       if (item.needsClarification || !result.offers.length) return result;
-      const { clarification, ...ranked } = await decide(config, { item, preferences, instruction, selection, offers: result.offers }, signal);
-      const question = ranked.decision.status === 'needs_clarification'
-        ? clarification?.trim() || searchRecoveryQuestion(item, preferences) : null;
-      return { ...ranked, offers: question ? [] : ranked.offers.slice(0, 3), warnings: [...result.warnings, ...ranked.warnings],
-        ...(question ? { interpretation: { ...item, needsClarification: true, clarification: question } } : {}),
-      };
+      const ranked = await decide(config, { item, preferences, instruction, selection, offers: result.offers }, signal);
+      return { ...ranked, offers: ranked.offers.slice(0, 3), warnings: [...result.warnings, ...ranked.warnings] };
     };
     const primary = await rank(await providers[mode].search(item, preferences, signal, instruction));
     if (mode === 'live') {
@@ -120,9 +116,6 @@ export function createApp(options: AppOptions = {}) {
         // target, buyer constraints, and crop. Never force an unrelated winner.
         ranked = await searchWeb({ ...item, queries: [item.productType.trim()] });
       }
-      if (ranked.interpretation?.needsClarification) return {
-        ...ranked, discoverySource: 'exa', webSearch: { status: 'used', message: ranked.interpretation.clarification! },
-      };
       const message = ranked.offers.length
         ? 'Found product references with Exa and added them to your demo catalog.'
         : 'Exa searched across stores but found no matching product references. Try a broader description or a brand/model name.';

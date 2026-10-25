@@ -4,5 +4,5 @@ export function searchRecoveryQuestion(item: Interpretation, preferences: Prefer
   if (preferences.budget !== undefined && preferences.currency) {
     return `No matching ${item.productType.trim() || 'item'} was found within ${preferences.currency} ${preferences.budget.toLocaleString('en-US')}. What budget or brand/model should I try?`;
   }
-  return `For ${item.productType.trim() || 'this item'}, do you want a specific brand/model or something similar?`;
+  return `I could not find a suitable ${item.productType.trim() || 'item'}. What detail should I search for next?`;
 }
