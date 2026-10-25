@@ -22,9 +22,7 @@ An AI shopping assistant that turns a right-click into product discovery, recomm
 
 ---
 
-## Meet Needle in action
-
-https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
+**[▶ Watch the promo video](#meet-needle-in-action)**
 
 ## Shopping starts with what catches your eye
 
@@ -58,12 +56,6 @@ When the target is unclear, answer a short question by typing or using the micro
 ## Take a quick tour
 
 The [public website](https://haoming9527.github.io/Needle/) introduces Needle through a guided tour, an animated right-click example, sample finds, and a seller workspace.
-
-<p align="center">
-  <a href="https://haoming9527.github.io/Needle/">
-    <img src="docs/assets/website-preview.png" alt="Needle website showing a right-click product match with Buy and Add to cart controls" width="304" />
-  </a>
-</p>
 
 The website is a static showcase. Run the extension locally to try capture, the agent, cart, and purchase history.
 
@@ -187,3 +179,7 @@ Our idea: make AI the primary shopping interface, moving discovery from search b
 **Needle · Your eye. Your finds.**
 
 </div>
+
+## Meet Needle in action
+
+https://github.com/user-attachments/assets/32cb2435-9694-4d49-b397-e043b2466502
