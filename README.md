@@ -1,170 +1,191 @@
+<div align="center">
+
+<img src="public/icons/needle-128.png" alt="Needle logo" width="80" height="80" />
+
 # Needle
 
-**See it anywhere. Find it with Needle.**
+### See it. Right-click it. Shop it.
 
-A local Chrome extension with a compact right-click shopping popup, a Vercel AI SDK agent, and a SQLite cart and purchase history. Needle searches across stores, using 18 seed products plus product references discovered with Exa. Purchases are simulated; it does not place merchant orders.
+**Team 9 Project · Top 10 at AI Grand Prix Singapore**
 
-The extension uses six generated category photos in `public/assets/photos/`. These are illustrative images, not verified photographs of the named catalog models. Searching shows a small red glow at the selected point, elapsed time, and an available cancel control.
+An AI shopping assistant that turns a right-click into product discovery, recommendations, and shopping—without leaving the page.
 
-Search recommends a suitable product even when its exact brand or model is unknown. It asks a question only when the intended object is unclear or no suitable product remains after searching. Decorative stickers and custom lettering do not require an exact match. If product selection rejects all web candidates, Needle tries one broader search under the original deadline and constraints, then asks for guidance while keeping the original crop.
+![Top 10](https://img.shields.io/badge/AI_Grand_Prix_Singapore-Top_10-F4B942?style=flat-square)
+![Chrome Extension](https://img.shields.io/badge/Chrome-Manifest_V3-4285F4?style=flat-square&logo=googlechrome&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?style=flat-square&logo=react&logoColor=61DAFB)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 
-Dropped discovery replies recover once using the same selection. The visible panel reconnects when the local service comes back. Cart and purchase retries use persistent identifiers to avoid duplicate additions or receipts; if a cart reply is lost, retry within the same popup or confirmation dialog. Your selected variant stays fixed for that retry.
+**[Explore the website](https://haoming9527.github.io/Needle/) · [Run locally](#quick-start) · [Architecture](docs/ARCHITECTURE.md)**
 
-## Run locally
+</div>
 
-Requires Node.js 22.13+ (tested on 26.12.1).
+---
 
-```powershell
+## Meet Needle in action
+
+[![Watch Needle Promo](https://img.shields.io/badge/%E2%96%B6_Watch-Needle_Promo-3166F5?style=for-the-badge)](Needle_Promo.mp4)
+
+**[Watch the promo video →](Needle_Promo.mp4)**
+
+## Shopping starts with what catches your eye
+
+A pair of headphones in a video. A lamp in an article. A bag in a social post. You know what you want when you see it—but finding it usually means opening another tab and guessing what to search.
+
+Needle makes the item itself the starting point. Right-click near it, and the agent uses the cursor position and a focused image crop to identify the object, search for suitable products, and prepare the next step.
+
+> **Prototype checkout · No payment taken.** Purchases are simulated; Needle does not place orders with merchants.
+
+## From inspiration to a cart
+
+| Step | What happens |
+| --- | --- |
+| **01 · Point** | Right-click an item in an image, video, or ordinary webpage—including X. |
+| **02 · Discover** | Needle identifies the object around your cursor and searches its catalog, with Exa web fallback. |
+| **03 · Decide** | Review a recommended product, its price, source, and match quality. |
+| **04 · Shop** | Add it to your cart or choose **Buy** to review and confirm a simulated purchase. |
+
+When the target is unclear, answer a short question by typing or using the microphone. Your answer stays attached to the original selection.
+
+## Built for the moment
+
+- **A three-control popup:** Buy, Add to cart, and ×. It stays beside the item while the agent works.
+- **Cursor-aware vision:** a focused crop and marked reference help the agent understand which object you mean.
+- **Catalog + web discovery:** prepared products and cached discoveries live in SQLite; Exa helps find products beyond them.
+- **AI product selection:** OpenAI evaluates candidates against the selected object and your preferences.
+- **Voice clarification:** record a reply, review the transcript, and submit it when ready.
+- **Persistent cart and history:** revisit finds, review receipts, and clear unused shopping data.
+- **Your normal browser, when you want it:** switch Needle off or hold **Shift + right-click** for the original menu.
+
+## Take a quick tour
+
+The [public website](https://haoming9527.github.io/Needle/) introduces Needle through a guided tour, an animated right-click example, sample finds, and a seller workspace.
+
+<p align="center">
+  <a href="https://haoming9527.github.io/Needle/">
+    <img src="docs/assets/website-preview.png" alt="Needle website showing a right-click product match with Buy and Add to cart controls" width="304" />
+  </a>
+</p>
+
+The website is a static showcase. Run the extension locally to try capture, the agent, cart, and purchase history.
+
+## Quick start
+
+**You’ll need:** Node.js **22.13+**, npm, and Google Chrome. Add an OpenAI API key for image recognition and voice, and an Exa API key for web discovery.
+
+### 1. Install
+
+```bash
+git clone https://github.com/Haoming9527/Needle.git
+cd Needle
 npm install
-# Only copy when no .env exists; preserve your existing keys.
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+Copy `.env.example` to `.env` if you do not already have one, then fill in your keys:
+
+```dotenv
+OPENAI_API_KEY=your_openai_key
+EXA_API_KEY=your_exa_key
+```
+
+Keep the other defaults from `.env.example`, or choose models available to your account. Keys stay on the local backend. Without an AI key, text-based catalog search still works; image recognition does not.
+
+### 2. Start the local app
+
+```bash
 npm run dev
 ```
 
-- [Shopping panel](http://127.0.0.1:5173/panel.html)
+This starts the API at `http://127.0.0.1:4318` and the [shopping panel](http://127.0.0.1:5173/panel.html). Keep the process running.
 
-The API binds to `127.0.0.1:4318`; Vite binds to `127.0.0.1:5173`. Keep them running. For the API alone, use `npm start`.
+### 3. Load the extension
 
-## AI configuration
+In a second terminal:
 
-Your existing `.env` is preserved. The only required key for the demo agent is:
-
-```dotenv
-OPENAI_API_KEY=your_key
-EXA_API_KEY=your_exa_key
-OPENAI_MODEL=gpt-5.6-terra
-NEEDLE_MODE=sample
-DATABASE_PATH=.local/needle.sqlite
-PORT=4318
-```
-
-Use a vision-capable model available to your account. The existing configured model takes precedence over the default. Restart the API after changing `.env`.
-
-Product selection and voice reuse `OPENAI_API_KEY`. Optional overrides (no additional keys required):
-
-```dotenv
-OPENAI_DECISION_MODEL=gpt-6-luna
-OPENAI_TTS_MODEL=gpt-4o-mini-tts
-OPENAI_TTS_VOICE=coral
-OPENAI_TRANSCRIBE_MODEL=gpt-transcribe
-```
-
-The dedicated OpenAI Decisions endpoint chooses the best fit from the retrieved candidates, using the clean crop as primary evidence and a marked copy to locate the cursor, alongside identified features, constraints, and clarification replies. Only a successful choice receives **Best fit**. A rejected catalog candidate set can trigger Exa fallback. Missing credentials or a failed decision keep the existing grounded recommendations with a search note; prices, match labels, and merchant facts are never rewritten by the decision.
-
-Alternatively, set `AI_GATEWAY_API_KEY` for identification and catalog search; Decisions and voice require a direct `OPENAI_API_KEY`. The OpenAI key takes priority when both are present. No Vercel deployment is required. `EXA_API_KEY` enables automatic web fallback when the catalog has no close match, including searches started from the right-click popup. Without it, prepared catalog searches still work.
-
-With a key, the agent interprets the selected image, calls a SQLite catalog-search tool, and compares up to eight grounded candidates before showing three recommendations. The candidate pool keeps prepared records alongside cached web products; supported manufacturer evidence takes priority over decorative lettering or a title's theme. Brand recognition does not establish an exact model. Without a key, text descriptions still search the prepared catalog; image recognition is unavailable. Keys stay on the backend and are never bundled into the extension.
-
-### When there is no catalog match
-
-Needle searches the wider web directly through Exa for real product references and adds those products to the local demo catalog. There is no preferred retailer or domain restriction. This reuses the identified object within the same 45-second request. Missing credentials or failed services produce a recovery message.
-
-Web-derived demo items show their source website and retain the original reference in **Product details → Original product source**. A verified source price keeps its currency. Otherwise, the agent assigns an illustrative price, marked in Product details. SQLite saves the product, price, and provenance so later searches use the same record. The interface automatically uses catalog search with web fallback; there is no mode picker or connection badge. Direct web retrieval remains available to API clients using `mode: "live"`, with unknown prices kept unknown.
-
-## Load or update the extension
-
-```powershell
+```bash
 npm run build
 ```
 
-1. Open `chrome://extensions`, enable Developer mode, and load unpacked `E:\01-Projects\Needle\dist\extension`.
-2. If Needle is already installed, click its **Reload** control and accept the approved site permission if Chrome requests it.
-3. Check that Chrome shows **version 0.8.2**. Needle reattaches to open webpages automatically after reloading the extension.
-4. Right-click the object on any ordinary **HTTP/HTTPS webpage**, including X. A floating toolbar appears immediately with **Buy**, **Add to cart**, and **×**.
-5. Needle captures a small region around the cursor, marks the exact point for vision, and automatically searches. A red glow stays at the clicked point while searching and disappears when the search ends. It hides during capture and respects reduced motion. Its two shopping actions become available when a result and any required variant are ready. If the agent asks which object you mean, type your answer directly in the popup and press Enter or Search.
-6. **Buy** opens the side panel to review and confirm. **Cart** and **History** are available from the panel navigation.
+1. Open `chrome://extensions` and enable **Developer mode**.
+2. Click **Load unpacked** and select this checkout’s **`dist/extension`** folder.
+3. Open an ordinary HTTP/HTTPS webpage and right-click an item.
 
-Shift + right-click preserves the normal browser menu, as does right-clicking an editable field. The native **Find with Needle** entry remains a fallback. Images, video-control overlays, CSS backgrounds, canvas drawings, and ordinary page areas all open the custom toolbar. The popup stays anchored through loading and results. Clarification replies in either the popup or panel reuse the original frame; manual crop/description controls remain available.
+After changing extension code, rebuild and click **Reload** on Needle’s extension card. Browser-internal pages and the Chrome Web Store do not support the custom popup.
 
-Use the panel's **On/Off switch** to enable or disable right-click shopping. Off restores the normal browser/site context menu and closes an active shopping popup. The preference is saved across tabs and browser restarts. Open Needle from Chrome's extension toolbar to turn it back on. Settings now contains just the budget and currency preferences.
+For voice, permissions, model overrides, troubleshooting, and the full API reference, see the [local development guide](docs/LOCAL_DEVELOPMENT.md).
 
-If Chrome still shows only its normal menu, verify version 0.8.2, enable Needle's site access for the page, and refresh that page. Browser-internal pages, the Chrome Web Store, and embedded cross-origin frame contents cannot use this top-document toolbar. Open an embedded player directly or use the native Needle menu and manual crop.
+## Under the hood
 
-When a product photo is missing or fails to load, recommendations, alternatives, and their checkout use your selected image or crop as the fallback. The selected image stays in the current browser flow; it is not added to the stored catalog as a merchant photo.
+```mermaid
+flowchart LR
+    A[Right-click an item] --> B[Cursor-focused crop]
+    B --> C[AI identification]
+    C --> D[Catalog + Exa search]
+    D --> E[Product selection]
+    E --> F[Review recommendation]
+    F --> G[Cart / simulated checkout]
+```
 
-### Voice answers
-
-When Needle asks a clarification question, click the small **microphone icon inside the answer field** to record a reply. Allow microphone access when Chrome asks, speak, then click the same button (now a stop icon). Review or edit the transcript and press **Search** in the popup or **Send answer** in the panel. Transcription never submits an answer or purchases anything automatically.
-
-Recording starts only after the microphone button is clicked, stops after 30 seconds, and is cancelled when the question is closed or replaced. Audio is sent through the local backend to OpenAI and held only in memory; it is not written to SQLite. Typing remains available when a page blocks microphone access. The popup and panel each use one microphone control; the Speech endpoint remains available on the backend without a separate playback button.
-
-Technical lifecycle note: this prototype uses OpenAI's Speech endpoint with `gpt-4o-mini-tts`, currently scheduled to retire on 6 January 2027. Migrating to Realtime speech requires an integration change, not just a model-name substitution. See the [speech guide](https://developers.openai.com/api/docs/guides/text-to-speech).
-
-### Browser permission
-
-Chrome's screenshot API requires `<all_urls>` for capture initiated by a webpage right-click rather than an extension-menu invocation. This expanded permission was explicitly approved. Content scripts now run in ordinary HTTP(S) top-level pages, as requested, and updates reattach them to open pages. No screenshots are captured until a user gesture. There is no ongoing feed scraping, X API access, posting, liking, or account automation.
-
-The popup is visible immediately, then briefly hidden during capture. Only a region of up to 320 × 320 CSS pixels, clipped to the visible media when detected or otherwise to the viewport, reaches the backend. Vision receives the clean crop first, plus a reference copy with a target ring and exact normalized cursor coordinates, including near image edges; the shopper sees the clean crop. Replies reuse these images rather than recapturing a moving video. Tab switches, navigation, cancellation, and changed geometry invalidate capture. Raw full-tab pixels are transient. Neither crop copy is saved in SQLite. The manual crop fallback retains its screenshot only in extension session storage. Video protections may produce a black frame; use a description in that case.
-
-## SQLite and the agent
-
-`.local/needle.sqlite` is created and seeded automatically. It stores seeded and web-derived catalog records, search interpretations for one hour, cart items, and purchase receipts. Raw image captures are excluded. Selected source-page metadata is retained with its search; general browsing history is not collected.
-
-The seed includes headphones, bags, lamps, podcast microphones, boom arms, and laptops. Prices and variants are illustrative. Seed records show **Needle catalog**, while sourced products show their original website. Collapsed Product details retains provenance. Edit `server/storage/catalog.ts` to change fixtures; startup upserts the seeded records.
-
-**Clear cart** removes every saved cart entry; **Clear history** removes the local purchase receipts. Each button affects only its own collection. Catalog products and API credentials remain available. Clearing history keeps only confirmation identifiers and request hashes to reject stale purchase retries, without retaining deleted receipt payloads.
-
-The agent uses AI SDK 7 `ToolLoopAgent` with a bounded read-only catalog-search tool. It cannot place orders or change the cart. Catalog output IDs must come from tool evidence. The web fallback validates product names against retrieved excerpts, keeps original source links, and saves any illustrative price before use. Checkout is a separate explicit user action. Repeated confirmation IDs return one receipt. Cart checkout and removal happen in one SQLite transaction.
-
-Existing `.local/demo-orders.json` receipts are imported once without changing the original file. Currency amounts remain in their original currency; totals are grouped by currency.
-
-## API
-
-| Endpoint | Purpose |
+| Layer | Technology |
 | --- | --- |
-| `GET /health` | Agent/configuration status; no secret values |
-| `POST /discover` | Interpret selected content and recommend items |
-| `POST /refine` | Search again while preserving the original target |
-| `POST /clarify` | Answer a pending question and re-identify the original crop |
-| `POST /voice/question` | Speak the pending question from its saved session |
-| `POST /voice/transcribe` | Transcribe a short recording into an editable reply |
-| `GET /cart`, `POST /cart` | Read cart or add a reviewed offer |
-| `POST /cart/clear` | Empty the cart; strict empty JSON body `{}` |
-| `POST /cart/:id/quantity` | Update quantity |
-| `POST /cart/:id/remove` | Remove an entry |
-| `GET /orders`, `POST /orders` | Read history or confirm a purchase |
-| `POST /orders/clear` | Clear purchase history; strict empty JSON body `{}` |
-| `POST /demo-orders` | Backwards-compatible purchase endpoint |
+| Browser experience | Chrome Manifest V3, React, TypeScript |
+| Agent workflow | Vercel AI SDK, OpenAI |
+| Web discovery | Exa |
+| Local API | Node.js, Express |
+| Persistence | SQLite |
+| Build and checks | Vite, esbuild, Vitest |
+| Public showcase | React, GitHub Pages |
 
-## Code layout
+The agent searches and recommends; cart changes and checkout are separate user actions. Repeated confirmation identifiers return the same receipt to prevent duplicate purchases.
 
-The separate [public website](website/README.md) lives in `website/`. Use `npm run dev:site` to work on it and `npm run build:site` to build `dist/website/`. It reproduces the reference's shopper/seller experience and starts with the quick tour. Extension commands and output remain separate.
+## Project map
 
 ```text
-server/
-  agent/           # Identification, catalog tool loop, product decisions, search workflow
-  providers/       # Catalog and Exa retrieval, source evidence, provider contract
-  storage/         # SQLite persistence and seed catalog
-  http/            # Request validation, local access rules, cancellation, errors
-  routes/          # Voice endpoints
-  app.ts           # Compose dependencies and register API routes
-  index.ts         # Start the local API
-src/
-  extension/
-    capture/       # Cursor geometry and target detection
-    storage/       # Persistent On/Off preference
-    transport/     # Browser messaging and panel handoff
-  panel/
-    components/    # Shopping, cart, history, voice, and loading UI
-  voice/           # Shared browser recording/transcription client
-shared/            # Browser/server contracts and shared presentation rules
-website/           # Static public site, its components, and self-hosted assets
-tests/             # Regression tests and development-only browser fixtures
-scripts/           # Build checks, retrieval checks, and icon maintenance
-docs/              # Requirements, architecture, verification, hackathon reference
+src/extension/     Right-click popup, capture, and browser messaging
+src/panel/         Recommendations, checkout, cart, and history
+src/voice/         Browser recording and transcription client
+server/agent/      Identification, search workflow, and product selection
+server/providers/  Catalog and Exa retrieval
+server/storage/    SQLite persistence and prepared products
+shared/            Browser/server contracts and presentation rules
+website/           Public showcase and guided tour
+tests/             Regression tests and development fixtures
+docs/              Architecture, setup, requirements, and verification
 ```
 
-Start with [the architecture guide](docs/ARCHITECTURE.md) for the request flow and where to make common changes. Runtime commands and extension entry points are unchanged. Local keys and saved data stay in the ignored `.env` and `.local/` paths.
+## Development
 
-## Checks
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the local API and panel |
+| `npm run build` | Type-check and package the extension |
+| `npm test` | Run the regression suite |
+| `npm run dev:site` | Develop the public website |
+| `npm run build:site` | Build the website into `dist/website` |
+| `npm run check:coverage` | Check configured web retrieval coverage |
 
-```powershell
-npm test
-npm run build
-```
+**[Architecture](docs/ARCHITECTURE.md) · [Local development](docs/LOCAL_DEVELOPMENT.md) · [Requirements](docs/REQUIREMENTS.md) · [Verification](docs/VERIFICATION.md) · [Website](website/README.md)**
 
-See [verification](docs/VERIFICATION.md) and [requirements](docs/REQUIREMENTS.md). `tests/fixtures/` contains development-only previews of actual extension components; these are excluded from the extension build.
+<details>
+<summary><strong>Data, privacy, and prototype scope</strong></summary>
 
-Optional direct web retrieval uses Exa and source-evidence checks; run `npm run check:coverage` before presenting it. It never silently switches to fixtures. Inventory verification and real merchant checkout are outside this demo.
+- Capture starts after a user gesture. The backend receives the focused crop and a marked reference, not an ongoing screen recording.
+- API keys remain in `.env`; local shopping data lives in `.local/needle.sqlite`. Both paths are ignored by Git.
+- Captured images are not stored in the catalog database. Voice recordings are processed in memory.
+- Prepared catalog prices and variants are illustrative. Web-derived products retain their original source; illustrative prices are identified in Product details.
+- Amounts keep their original currencies. Totals are grouped by currency rather than silently converted.
+- The prototype does not verify merchant inventory, process payments, or automate real checkout.
 
-Technical references: [AI SDK agents](https://ai-sdk.dev/docs/agents/building-agents), [Chrome screenshot permission](https://developer.chrome.com/docs/extensions/reference/api/tabs#method-captureVisibleTab), [Node SQLite](https://nodejs.org/api/sqlite.html).
+</details>
+
+## Team 9
+
+Built for **AI Grand Prix Singapore**, where **Team 9 placed in the Top 10**.
+
+Our idea: make AI the primary shopping interface, moving discovery from search boxes to the things people already see and want.
+
+<div align="center">
+
+**Needle · Your eye. Your finds.**
+
+</div>
