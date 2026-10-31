@@ -6,7 +6,7 @@
 
 ### See it. Right-click it. Shop it.
 
-**Team 9 Project · Top 10 at AI Grand Prix Singapore**
+**Team 9 Project · Top 10 at AI Grand Prix Singapore, organised by OpenAI and Coupang**
 
 An AI shopping assistant that turns a right-click into product discovery, recommendations, and shopping—without leaving the page.
 
